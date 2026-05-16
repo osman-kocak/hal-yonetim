@@ -5,6 +5,9 @@ export const useAppStore = create((set) => ({
   step: 'driver_select',
   selectedProducer: null,
   selectedProduct: null,
+  driverBalance: null,
+
+  setDriverBalance: (n) => set({ driverBalance: n }),
 
   startSession: (session) =>
     set({

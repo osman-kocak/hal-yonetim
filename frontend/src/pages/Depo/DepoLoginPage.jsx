@@ -20,13 +20,14 @@ export function DepoLoginPage() {
     setLoading(true)
     try {
       const { token, user } = await api.adminLogin(username, password)
-      if (user.role !== 'DEPO' && user.role !== 'ADMIN') {
+      const roles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : [])
+      if (!roles.includes('DEPO') && !roles.includes('ADMIN')) {
         setError('Bu giriş depo personeli içindir.')
         setLoading(false)
         return
       }
       login(token, user)
-      navigate('/depo')
+      navigate('/')
     } catch (err) {
       setError(err.response?.data?.error ?? 'Giriş başarısız')
     } finally {

@@ -3,7 +3,6 @@ import { EntryPage } from '@/pages/Entry/EntryPage'
 import { ExitPage } from '@/pages/Exit/ExitPage'
 import { MarketExitDetail } from '@/pages/Exit/MarketExitDetail'
 import { AdminLayout } from '@/pages/Admin/AdminLayout'
-import { LoginPage as AdminLoginPage } from '@/pages/Admin/LoginPage'
 import { DashboardPage } from '@/pages/Admin/DashboardPage'
 import { DriversPage } from '@/pages/Admin/DriversPage'
 import { ProducersPage } from '@/pages/Admin/ProducersPage'
@@ -17,25 +16,39 @@ import { CaseTrackingPage } from '@/pages/Admin/CaseTrackingPage'
 import { TransfersPage } from '@/pages/Admin/TransfersPage'
 import { FinancePage } from '@/pages/Admin/FinancePage'
 import { UsersPage } from '@/pages/Admin/UsersPage'
+import { ReturnsPage } from '@/pages/Admin/ReturnsPage'
 import { DepoLayout } from '@/pages/Depo/DepoLayout'
-import { DepoLoginPage } from '@/pages/Depo/DepoLoginPage'
 import { DepoTransferPage } from '@/pages/Depo/DepoTransferPage'
 import { LoginPage } from '@/pages/LoginPage'
+import { RoleSelectPage } from '@/pages/RoleSelectPage'
+import { CaseManagerPage } from '@/pages/CaseManager/CaseManagerPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
-import { ProtectedRoute } from '@/components/ProtectedRoute'
+import { ProtectedRoute, PublicOnlyRoute } from '@/components/ProtectedRoute'
 import { ToastProvider } from '@/components/ui/Toast'
 
 const router = createBrowserRouter([
-  // Merkezi giriş sayfası
-  { path: '/giris', element: <LoginPage /> },
-  // Geriye uyumluluk: eski giriş sayfaları
-  { path: '/admin/giris', element: <AdminLoginPage /> },
-  { path: '/depo/giris', element: <DepoLoginPage /> },
+  // Merkezi giriş sayfası — auth'lu kullanıcı /'a yönlendirilir
+  { path: '/giris', element: <PublicOnlyRoute><LoginPage /></PublicOnlyRoute> },
+  // Eski URL'ler tek giriş ekranına yönlendirilir
+  { path: '/admin/giris', element: <Navigate to="/giris" replace /> },
+  { path: '/depo/giris', element: <Navigate to="/giris" replace /> },
 
-  // Operatör paneli — auth gerekli (her rol erişebilir, ama mantıken OPERATOR/ADMIN)
+  // Ana sayfa: rol bazlı onboarding (tek erişimi olan otomatik yönlendirilir)
   {
     path: '/',
-    element: <ProtectedRoute><EntryPage /></ProtectedRoute>,
+    element: <ProtectedRoute><RoleSelectPage /></ProtectedRoute>,
+  },
+
+  // Mal kabul (operatör)
+  {
+    path: '/mal-kabul',
+    element: <ProtectedRoute roles={['OPERATOR', 'ADMIN']}><EntryPage /></ProtectedRoute>,
+  },
+
+  // Kasacı paneli
+  {
+    path: '/kasaci',
+    element: <ProtectedRoute roles={['CASE_MANAGER', 'ADMIN']}><CaseManagerPage /></ProtectedRoute>,
   },
   {
     path: '/cikis',
@@ -75,6 +88,7 @@ const router = createBrowserRouter([
       { path: 'takip', element: <HistoryPage /> },
       { path: 'kasalar', element: <CaseTrackingPage /> },
       { path: 'transferler', element: <TransfersPage /> },
+      { path: 'iadeler', element: <ReturnsPage /> },
       { path: 'kullanicilar', element: <UsersPage /> },
       { path: 'soforler', element: <DriversPage /> },
       { path: 'ureticiler', element: <ProducersPage /> },

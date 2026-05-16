@@ -3,6 +3,7 @@ import { api } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { today } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
+import { ExportButton } from '@/components/ui/ExportButton'
 
 const TABS = ['Günlük Özet', 'Pazara Göre', 'Ürüne Göre', 'En Çok Satılan']
 
@@ -97,9 +98,10 @@ function MarketView({ data }) {
   if (!data.length) return <p className="text-text-muted">Bu tarihte veri yok</p>
   return (
     <DataTable
+      title="Pazar Bazlı Rapor"
       columns={['Pazar No', 'Pazar Adı', 'Kasa', 'Ağırlık']}
       rows={data.map((d) => [
-        <span className="font-bold text-primary">#{d.market.no}</span>,
+        `#${d.market.no}`,
         d.market.name,
         d.totalCases,
         `${d.totalWeight.toFixed(1)} kg`,
@@ -112,6 +114,7 @@ function ProductView({ data }) {
   if (!data.length) return <p className="text-text-muted">Bu tarihte veri yok</p>
   return (
     <DataTable
+      title="Ürün Bazlı Rapor"
       columns={['Ürün', 'Giriş Sayısı', 'Kasa', 'Ağırlık']}
       rows={data.map((d) => [
         d.product?.name ?? '—',
@@ -127,9 +130,11 @@ function TopView({ data }) {
   if (!data.length) return <p className="text-text-muted">Son 7 günde veri yok</p>
   return (
     <DataTable
-      columns={['Ürün', 'Giriş Sayısı', 'Kasa', 'Ağırlık (7 gün)']}
+      title="En Çok Giriş Yapılan Ürünler"
+      columns={['Sıra', 'Ürün', 'Giriş Sayısı', 'Kasa', 'Ağırlık (7 gün)']}
       rows={data.map((d, i) => [
-        <span key={i}><span className="text-text-muted mr-2">#{i + 1}</span>{d.product?.name ?? '—'}</span>,
+        `#${i + 1}`,
+        d.product?.name ?? '—',
         d.totalEntries,
         d.totalCases,
         `${Number(d.totalWeight ?? 0).toFixed(1)} kg`,
@@ -138,14 +143,29 @@ function TopView({ data }) {
   )
 }
 
-function DataTable({ columns, rows }) {
+function DataTable({ columns, rows, title = 'Rapor' }) {
   return (
     <div className="bg-white border border-border rounded-2xl shadow-card overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="flex items-center justify-between p-3 border-b border-border bg-gray-50">
+        <span className="text-sm font-semibold text-text-secondary">{title}</span>
+        <ExportButton
+          title={title}
+          filename={`${title}-${new Date().toISOString().slice(0, 10)}`}
+          prepare={() => ({ columns, rows })}
+          disabled={!rows.length}
+        />
+      </div>
+      <div className="overflow-x-auto">
+      <table className="w-full text-xs sm:text-sm">
         <thead className="bg-gray-50 border-b border-border">
           <tr>
-            {columns.map((c) => (
-              <th key={c} className="p-4 text-left font-semibold text-text-secondary">{c}</th>
+            {columns.map((c, i) => (
+              <th
+                key={c}
+                className={`p-2 sm:p-4 text-left font-semibold text-text-secondary ${i > 1 ? 'hidden md:table-cell' : ''}`}
+              >
+                {c}
+              </th>
             ))}
           </tr>
         </thead>
@@ -153,12 +173,18 @@ function DataTable({ columns, rows }) {
           {rows.map((row, i) => (
             <tr key={i} className="hover:bg-gray-50 transition-colors">
               {row.map((cell, j) => (
-                <td key={j} className="p-4 text-text-primary">{cell}</td>
+                <td
+                  key={j}
+                  className={`p-2 sm:p-4 text-text-primary ${j > 1 ? 'hidden md:table-cell' : ''}`}
+                >
+                  {cell}
+                </td>
               ))}
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

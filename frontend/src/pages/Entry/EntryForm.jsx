@@ -76,6 +76,8 @@ export function EntryForm() {
     selectedProduct,
     backToProducts,
     backToProducers,
+    driverBalance,
+    setDriverBalance,
   } = useAppStore()
   const addToast = useToastStore((s) => s.addToast)
 
@@ -145,6 +147,8 @@ export function EntryForm() {
     return true
   }
 
+  const totalCasesInForm = readySlots.reduce((s, x) => s + Number(x.caseCount || 0), 0)
+
   async function persistEntries() {
     await api.createEntryBatch({
       vehicleSessionId: activeSession.id,
@@ -157,11 +161,11 @@ export function EntryForm() {
         marketId: s.marketId,
       })),
     })
+    // Bakiye optimistik güncelle (server da DRIVER_IN kaydetti, refresh'le aynı olur)
+    if (driverBalance != null) setDriverBalance(driverBalance - totalCasesInForm)
   }
 
-  async function handleSaveAndContinueProduct(e) {
-    e?.preventDefault()
-    if (!validate()) return
+  async function doSaveAndContinueProduct() {
     setLoading(true)
     try {
       await persistEntries()
@@ -174,7 +178,7 @@ export function EntryForm() {
     }
   }
 
-  async function handleSaveAndFinishProducer() {
+  async function doSaveAndFinishProducer() {
     setLoading(true)
     try {
       await persistEntries()
@@ -186,6 +190,16 @@ export function EntryForm() {
       setLoading(false)
       setConfirmFinishProducer(false)
     }
+  }
+
+  function handleSaveAndContinueProduct(e) {
+    e?.preventDefault()
+    if (!validate()) return
+    doSaveAndContinueProduct()
+  }
+
+  function handleSaveAndFinishProducer() {
+    doSaveAndFinishProducer()
   }
 
   function onFinishProducerClick() {
@@ -268,6 +282,7 @@ export function EntryForm() {
         description={`${readySlots.length} giriş kaydedilecek ve ${selectedProducer?.name ?? 'üretici'} tamamlanacak. Devam edilsin mi?`}
         confirmLabel="Evet, Tamamla"
       />
+
     </div>
   )
 }

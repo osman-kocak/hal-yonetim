@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/utils/cn'
 import {
-  LayoutDashboard, Users, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet
+  LayoutDashboard, Users, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home
 } from 'lucide-react'
 
 const nav = [
@@ -12,6 +12,7 @@ const nav = [
   { to: '/admin/takip', label: 'Takip & Geçmiş', icon: History },
   { to: '/admin/kasalar', label: 'Kasa Takip', icon: Boxes },
   { to: '/admin/transferler', label: 'Transferler', icon: ArrowLeftRight },
+  { to: '/admin/iadeler', label: 'İadeler', icon: RotateCcw },
   { to: '/admin/raporlar', label: 'Raporlar', icon: BarChart2 },
   { to: '/admin/kullanicilar', label: 'Kullanıcılar', icon: UserCog },
   { to: '/admin/soforler', label: 'Şoförler', icon: Users },
@@ -57,7 +58,14 @@ export function AdminLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-3 border-t border-border">
+        <div className="p-3 border-t border-border flex flex-col gap-1">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-text-secondary hover:bg-gray-50 hover:text-text-primary w-full transition-colors"
+          >
+            <Home className="w-4 h-4" />
+            Ana Sayfaya Dön
+          </button>
           <button
             onClick={() => { logout(); navigate('/giris') }}
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-error hover:bg-red-50 w-full transition-colors"

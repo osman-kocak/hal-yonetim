@@ -90,15 +90,15 @@ export function PricesPage() {
         Fiyat alanını doldurup çıkınca otomatik kaydedilir. Boş bırakılan ürünler irsaliyede "—" olarak görünür.
       </p>
 
-      <div className="bg-white border border-border rounded-2xl shadow-card overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white border border-border rounded-2xl shadow-card overflow-x-auto">
+        <table className="w-full text-xs sm:text-sm">
           <thead className="bg-gray-50 border-b border-border">
             <tr>
-              <th className="p-4 text-left font-semibold text-text-secondary">Ürün</th>
+              <th className="p-2 sm:p-4 text-left font-semibold text-text-secondary">Ürün</th>
               {qualities.map((q) => (
-                <th key={q.id} className="p-4 text-center font-semibold text-text-secondary">
-                  <Badge variant={q.name === 'A' ? 'quality-a' : 'quality-b'}>{q.name} Kalite</Badge>
-                  <span className="block text-xs font-normal text-text-muted mt-0.5">₺ / kg</span>
+                <th key={q.id} className="p-2 sm:p-4 text-center font-semibold text-text-secondary">
+                  <Badge variant={q.name === 'A' ? 'quality-a' : 'quality-b'}>{q.name}</Badge>
+                  <span className="block text-[10px] sm:text-xs font-normal text-text-muted mt-0.5">₺ / kg</span>
                 </th>
               ))}
             </tr>
@@ -106,14 +106,14 @@ export function PricesPage() {
           <tbody className="divide-y divide-border">
             {products.map((p) => (
               <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                <td className="p-4 font-medium text-text-primary">{p.name}</td>
+                <td className="p-2 sm:p-4 font-medium text-text-primary">{p.name}</td>
                 {qualities.map((q) => {
                   const key = `${p.id}_${q.id}`
                   const isSaving = saving === key
                   return (
-                    <td key={q.id} className="p-3 text-center">
+                    <td key={q.id} className="p-2 sm:p-3 text-center">
                       <div className="relative inline-flex items-center">
-                        <span className="absolute left-3 text-text-muted text-sm">₺</span>
+                        <span className="absolute left-2 sm:left-3 text-text-muted text-xs sm:text-sm">₺</span>
                         <input
                           type="number"
                           step="0.01"
@@ -122,10 +122,10 @@ export function PricesPage() {
                           value={prices[key] ?? ''}
                           onChange={(e) => handleChange(p.id, q.id, e.target.value)}
                           onBlur={() => handleBlur(p.id, q.id)}
-                          className="w-28 pl-7 pr-3 py-2 rounded-lg border border-border text-right text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                          className="w-20 sm:w-28 pl-6 sm:pl-7 pr-2 sm:pr-3 py-2 rounded-lg border border-border text-right text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                         />
                         {isSaving && (
-                          <span className="absolute -right-6">
+                          <span className="absolute -right-5 sm:-right-6">
                             <LoadingSpinner size="sm" className="text-primary" />
                           </span>
                         )}

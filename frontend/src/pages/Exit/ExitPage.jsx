@@ -15,7 +15,7 @@ export function ExitPage() {
 
   useEffect(() => {
     api.getMarkets()
-      .then(setMarkets)
+      .then((all) => setMarkets((all ?? []).filter((m) => m.no !== 0)))
       .catch(() => addToast('Pazarlar yüklenemedi', 'error'))
       .finally(() => setLoading(false))
   }, [])

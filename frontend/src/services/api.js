@@ -29,11 +29,14 @@ const unwrap = (promise) => promise.then((r) => r.data)
 export const api = {
   // Vehicle
   startVehicle: (driverId) => unwrap(http.post('/vehicle/start', { driverId })),
-  completeVehicle: (vehicleSessionId) => unwrap(http.post('/vehicle/complete', { vehicleSessionId })),
+  completeVehicle: (vehicleSessionId, opts = {}) => unwrap(http.post('/vehicle/complete', { vehicleSessionId, ...opts })),
 
   // Entry
   createEntry: (data) => unwrap(http.post('/entry', data)),
   createEntryBatch: (data) => unwrap(http.post('/entry/batch', data)),
+  updateEntry: (id, data) => unwrap(http.put(`/entry/${id}`, data)),
+  deleteEntry: (id) => unwrap(http.delete(`/entry/${id}`)),
+  getSessionEntries: (sessionId) => unwrap(http.get(`/vehicle/${sessionId}/entries`)),
 
   // Public — giriş paneli için (auth gerektirmez)
   getDrivers: () => unwrap(http.get('/drivers')),
@@ -56,7 +59,17 @@ export const api = {
   // Depo
   getDepoEntries: () => unwrap(http.get('/depo/entries')),
   createTransfer: (data) => unwrap(http.post('/depo/transfer', data)),
+  createGroupedTransfer: (data) => unwrap(http.post('/depo/transfer-grouped', data)),
+  createDepoReturn: (data) => unwrap(http.post('/depo/return', data)),
+  listDepoReturns: (params) => unwrap(http.get('/depo/returns', { params })),
+  deleteDepoReturn: (id) => unwrap(http.delete(`/depo/returns/${id}`)),
   getAdminTransfers: (params) => unwrap(http.get('/admin/transfers', { params })),
+
+  // Kasacı (case manager) paneli
+  getCaseDriverBalances: () => unwrap(http.get('/cases/balances/drivers')),
+  getCaseMarketBalances: () => unwrap(http.get('/cases/balances/markets')),
+  createCaseMovement: (data) => unwrap(http.post('/cases/movements', data)),
+  getCaseMovements: (params) => unwrap(http.get('/cases/movements', { params })),
 
   // Admin CRUD
   getAdminDrivers: () => unwrap(http.get('/admin/drivers')),

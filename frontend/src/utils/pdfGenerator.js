@@ -45,28 +45,36 @@ export function generateIrsaliye(exit) {
   doc.setLineWidth(0.5)
   doc.line(15, infoY + 25, pageW - 15, infoY + 25)
 
-  const head = [['Ürün', 'Kalite', 'Kasa', 'Ağırlık (kg)', 'Tutar (₺/kg)', 'Toplam (₺)']]
+  const head = [['Ürün', 'Kasa', 'Ağırlık (kg)', 'Tutar (TL/kg)', 'Toplam (TL)']]
 
-  const body = exit.items.map((item) => [
-    item.entry.product.name,
-    item.entry.quality.name,
-    item.entry.caseCount,
-    Number(item.entry.weight).toFixed(2),
-    item.pricePerKg !== null && item.pricePerKg !== undefined
-      ? Number(item.pricePerKg).toFixed(2)
-      : '',
-    '', // Toplam — el ile doldurulacak
-  ])
+  const fmt = (n) => new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(n))
 
-  const foot = [['GENEL TOPLAM', '', '', '', '', '']]
+  let grandTotal = 0
+  const body = exit.items.map((item) => {
+    const ppk = item.pricePerKg
+    const hasPrice = ppk !== null && ppk !== undefined
+    const lineTotal = hasPrice ? Number(ppk) * Number(item.entry.weight) : null
+    if (lineTotal !== null) grandTotal += lineTotal
+    return [
+      item.entry.product?.name ?? '—',
+      item.entry.caseCount,
+      fmt(item.entry.weight),
+      hasPrice ? fmt(ppk) : '—',
+      lineTotal !== null ? fmt(lineTotal) : '—',
+    ]
+  })
+
+  const foot = [['GENEL TOPLAM', '', '', '', fmt(grandTotal)]]
 
   const colStyles = {
-    0: { cellWidth: 45 },
-    1: { cellWidth: 20, halign: 'center' },
-    2: { cellWidth: 18, halign: 'right' },
-    3: { cellWidth: 28, halign: 'right' },
-    4: { cellWidth: 30, halign: 'right' },
-    5: { cellWidth: 35, halign: 'right' },
+    0: { cellWidth: 55, halign: 'left' },
+    1: { cellWidth: 20, halign: 'right' },
+    2: { cellWidth: 30, halign: 'right' },
+    3: { cellWidth: 30, halign: 'right' },
+    4: { cellWidth: 35, halign: 'right' },
   }
 
   autoTable(doc, {
@@ -77,8 +85,14 @@ export function generateIrsaliye(exit) {
     headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: 'bold', font: 'Arial' },
     footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: 'bold', font: 'Arial' },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    styles: { font: 'Arial', fontSize: 9 },
+    styles: { font: 'Arial', fontSize: 9, cellPadding: 2 },
     columnStyles: colStyles,
+    didParseCell: (data) => {
+      // Başlık ve değerleri aynı kenarda hizala (sayısal kolonlar sağa, ürün sola)
+      if (data.section === 'head') {
+        data.cell.styles.halign = data.column.index === 0 ? 'left' : 'right'
+      }
+    },
   })
 
   // İmza satırları
@@ -98,9 +112,9 @@ export function generateIrsaliye(exit) {
   doc.setTextColor(0, 0, 0)
 
   // Alt Banner
-  const bannerY = pageH - 18
+  const bannerY = pageH - 24
   doc.setFillColor(22, 163, 74)
-  doc.rect(0, bannerY - 4, pageW, 22, 'F')
+  doc.rect(0, bannerY - 4, pageW, 28, 'F')
   doc.setFont('Arial', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(255, 255, 255)
@@ -108,6 +122,7 @@ export function generateIrsaliye(exit) {
   doc.setFont('Arial', 'normal')
   doc.setFontSize(8)
   doc.text('Yazılımı edinmek için iletişime geçin: bisiparisadm@gmail.com', pageW / 2, bannerY + 10, { align: 'center' })
+  doc.text('Tel / WhatsApp: +90 533 846 12 60', pageW / 2, bannerY + 16, { align: 'center' })
   doc.setTextColor(0, 0, 0)
 
   // Yeni sekmede aç (print için hazır)

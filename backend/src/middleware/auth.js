@@ -15,11 +15,16 @@ export function requireAuth(req, res, next) {
 }
 
 // Belirli rolleri olan kullanıcıyı zorunlu kıl — requireAuth'tan SONRA kullan
+// Multi-role: user.roles array veya geriye-uyum için user.role string
 export function requireRole(...allowed) {
   const set = new Set(allowed.map((r) => r.toUpperCase()))
   return (req, res, next) => {
-    const role = req.user?.role
-    if (!role || !set.has(String(role).toUpperCase())) {
+    const u = req.user
+    const userRoles = Array.isArray(u?.roles)
+      ? u.roles
+      : (u?.role ? [u.role] : [])
+    const ok = userRoles.some((r) => set.has(String(r).toUpperCase()))
+    if (!ok) {
       return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' })
     }
     next()

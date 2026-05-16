@@ -8,14 +8,20 @@
 set -euo pipefail
 
 # ---- Konfig ----
-VPS_HOST="srv1671139.hstgr.cloud"
-VPS_PORT="2222"
-VPS_USER="root"
-VPS_KEY="$HOME/.ssh/bisiparis_vps"
+# Yerel deploy.env varsa onu yükle. Yoksa default değerleri kullan.
+SCRIPT_DIR_INIT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR_INIT}/deploy.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR_INIT}/deploy.env"
+fi
 
-BACKEND_REMOTE="/var/www/mskocak.cloud/backend"
-FRONTEND_REMOTE="/var/www/mskocak.cloud/public"
-PM2_NAME="hal-yonetim"
+VPS_HOST="${VPS_HOST:-vps.example.com}"
+VPS_PORT="${VPS_PORT:-22}"
+VPS_USER="${VPS_USER:-root}"
+VPS_KEY="${VPS_KEY:-$HOME/.ssh/id_rsa}"
+BACKEND_REMOTE="${BACKEND_REMOTE:-/var/www/example.com/backend}"
+FRONTEND_REMOTE="${FRONTEND_REMOTE:-/var/www/example.com/public}"
+PM2_NAME="${PM2_NAME:-example-backend}"
 
 SSH_CMD="ssh -p ${VPS_PORT} -i ${VPS_KEY} ${VPS_USER}@${VPS_HOST}"
 RSYNC_SSH="ssh -p ${VPS_PORT} -i ${VPS_KEY}"

@@ -11,6 +11,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatDate, today } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 import { Plus, Trash2, Store, User, Boxes, FileText } from 'lucide-react'
+import { ExportButton } from '@/components/ui/ExportButton'
 
 const TABS = [
   { key: 'market', label: 'Bayi Kasaları', icon: Store },
@@ -111,9 +112,27 @@ export function CaseTrackingPage() {
           <Boxes className="w-6 h-6 text-primary" />
           Kasa Takip
         </h1>
-        <Button onClick={() => setModalOpen(true)} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Yeni Hareket
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            title={`Kasa Hareketleri - ${tab === 'market' ? 'Bayi' : 'Şoför'}`}
+            filename={`kasa-${tab}-${new Date().toISOString().slice(0, 10)}`}
+            prepare={() => ({
+              columns: ['Tarih', 'Tip', tab === 'market' ? 'Bayi' : 'Şoför', 'Adet', 'Not', 'Yapan'],
+              rows: movements.map((m) => [
+                formatDate(m.occurredAt),
+                TYPE_META[m.type]?.label ?? m.type,
+                tab === 'market' ? (m.market ? `#${m.market.no} ${m.market.name}` : '—') : (m.driver?.name ?? '—'),
+                `${TYPE_META[m.type]?.sign === '±' ? (m.qty > 0 ? '+' : '') : (TYPE_META[m.type]?.sign ?? '')}${m.qty}`,
+                m.note ?? '',
+                m.createdBy ?? '',
+              ]),
+            })}
+            disabled={!movements.length}
+          />
+          <Button onClick={() => setModalOpen(true)} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Yeni Hareket
+          </Button>
+        </div>
       </div>
 
       {/* Tab */}
@@ -232,16 +251,16 @@ export function CaseTrackingPage() {
           <EmptyState icon="📦" title="Hareket yok" description="Filtreyi değiştir veya yeni hareket ekle" />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs sm:text-sm">
               <thead className="bg-gray-50 border-b border-border">
                 <tr>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Tarih</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Tip</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">{tab === 'market' ? 'Bayi' : 'Şoför'}</th>
-                  <th className="p-3 text-right font-semibold text-text-secondary">Adet</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Not</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Giren</th>
-                  <th className="p-3 text-right font-semibold text-text-secondary">İşlem</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary hidden md:table-cell">Tarih</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Tip</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">{tab === 'market' ? 'Bayi' : 'Şoför'}</th>
+                  <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Adet</th>
+                  <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Not</th>
+                  <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Giren</th>
+                  <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -250,31 +269,32 @@ export function CaseTrackingPage() {
                   const isExit = !!m.exitId
                   return (
                     <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="p-3 text-text-primary whitespace-nowrap">{formatDate(m.occurredAt)}</td>
-                      <td className="p-3">
+                      <td className="p-3 text-text-primary whitespace-nowrap hidden md:table-cell">{formatDate(m.occurredAt)}</td>
+                      <td className="p-2 sm:p-3">
                         <Badge variant={meta.variant}>{meta.label}</Badge>
                         {isExit && (
-                          <span className="ml-2 inline-flex items-center gap-1 text-xs text-text-muted">
+                          <span className="ml-1 sm:ml-2 inline-flex items-center gap-1 text-[10px] sm:text-xs text-text-muted">
                             <FileText className="w-3 h-3" />
-                            İrsaliye #{m.exitId}
+                            <span className="hidden sm:inline">İrsaliye </span>#{m.exitId}
                           </span>
                         )}
+                        <div className="md:hidden text-[10px] text-text-muted mt-1">{formatDate(m.occurredAt)}</div>
                       </td>
-                      <td className="p-3 text-text-primary">
+                      <td className="p-2 sm:p-3 text-text-primary">
                         {tab === 'market'
                           ? (m.market ? `#${m.market.no} ${m.market.name}` : '—')
                           : (m.driver?.name ?? '—')}
                       </td>
-                      <td className="p-3 text-right font-semibold tabular-nums">
+                      <td className="p-2 sm:p-3 text-right font-semibold tabular-nums">
                         <span className={cn(
                           m.qty < 0 ? 'text-error' : 'text-text-primary'
                         )}>
                           {meta.sign === '±' ? (m.qty > 0 ? `+${m.qty}` : m.qty) : `${meta.sign}${Math.abs(m.qty)}`}
                         </span>
                       </td>
-                      <td className="p-3 text-text-muted text-xs max-w-xs truncate">{m.note ?? '—'}</td>
-                      <td className="p-3 text-text-muted text-xs">{m.createdBy ?? '—'}</td>
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-text-muted text-xs max-w-xs truncate hidden lg:table-cell">{m.note ?? '—'}</td>
+                      <td className="p-3 text-text-muted text-xs hidden lg:table-cell">{m.createdBy ?? '—'}</td>
+                      <td className="p-2 sm:p-3 text-right">
                         {!isExit && (
                           <button
                             onClick={() => setDeleteTarget(m)}

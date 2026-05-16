@@ -9,6 +9,13 @@ export async function createExit(req, res, next) {
       return res.status(400).json({ error: 'Market ve en az bir ürün seçimi zorunludur' })
     }
 
+    // Depoya (no=0) irsaliye kesilemez
+    const targetMarket = await prisma.market.findUnique({ where: { id: Number(marketId) } })
+    if (!targetMarket) return res.status(404).json({ error: 'Pazar bulunamadı' })
+    if (targetMarket.no === 0) {
+      return res.status(400).json({ error: 'Depoya irsaliye kesilemez — Depo Transfer kullanın' })
+    }
+
     const createdBy = req.body.createdBy ?? 'Operatör'
 
     // Aynı entry başka irsaliyede var mı?
@@ -25,6 +32,16 @@ export async function createExit(req, res, next) {
     const localDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     const priceMap = await getPriceMap(new Date(localDateStr))
 
+    // Önce entry'leri çek ki fiyat snapshot'ı items yazılırken hazır olsun
+    const targetEntries = await prisma.entry.findMany({
+      where: { id: { in: entryIds.map(Number) } },
+      select: { id: true, productId: true, qualityId: true },
+    })
+    const entryPriceMap = new Map(targetEntries.map((e) => {
+      const key = `${e.productId}_${e.qualityId}`
+      return [e.id, priceMap[key] ?? null]
+    }))
+
     const exit = await prisma.$transaction(async (tx) => {
       const created = await tx.exit.create({
         data: {
@@ -34,6 +51,7 @@ export async function createExit(req, res, next) {
             create: entryIds.map((entryId) => ({
               entryId: Number(entryId),
               loaded: true,
+              pricePerKg: entryPriceMap.get(Number(entryId)),
             })),
           },
         },
@@ -91,7 +109,7 @@ export async function createExit(req, res, next) {
 
     const itemsWithPrice = exit.items.map((item) => {
       const key = `${item.entry.productId}_${item.entry.qualityId}`
-      const pricePerKg = priceMap[key] ?? null
+      const pricePerKg = item.pricePerKg != null ? item.pricePerKg : (priceMap[key] ?? null)
       const totalPrice = pricePerKg !== null ? pricePerKg * item.entry.weight : null
       return { ...item, pricePerKg, totalPrice }
     })
@@ -131,6 +149,16 @@ export async function updateExit(req, res, next) {
     const priceMap = await getPriceMap(existingExit.createdAt)
     const editedBy = req.body.editedBy ?? 'Admin'
 
+    // entry'lerin product/quality bilgisini al ki fiyat snapshot'ı atılırken kullanılsın
+    const targetEntries = await prisma.entry.findMany({
+      where: { id: { in: entryIds.map(Number) } },
+      select: { id: true, productId: true, qualityId: true },
+    })
+    const entryPriceMap = new Map(targetEntries.map((e) => {
+      const key = `${e.productId}_${e.qualityId}`
+      return [e.id, priceMap[key] ?? null]
+    }))
+
     const exit = await prisma.$transaction(async (tx) => {
       await tx.exitItem.deleteMany({ where: { exitId: Number(id) } })
       const updated = await tx.exit.update({
@@ -139,7 +167,11 @@ export async function updateExit(req, res, next) {
           editedAt: new Date(),
           editedBy,
           items: {
-            create: entryIds.map((entryId) => ({ entryId: Number(entryId), loaded: true })),
+            create: entryIds.map((entryId) => ({
+              entryId: Number(entryId),
+              loaded: true,
+              pricePerKg: entryPriceMap.get(Number(entryId)),
+            })),
           },
         },
         include: {
@@ -219,7 +251,7 @@ export async function updateExit(req, res, next) {
 
     const itemsWithPrice = exit.items.map((item) => {
       const key = `${item.entry.productId}_${item.entry.qualityId}`
-      const pricePerKg = priceMap[key] ?? null
+      const pricePerKg = item.pricePerKg != null ? item.pricePerKg : (priceMap[key] ?? null)
       const totalPrice = pricePerKg !== null ? pricePerKg * item.entry.weight : null
       return { ...item, pricePerKg, totalPrice }
     })
@@ -228,4 +260,15 @@ export async function updateExit(req, res, next) {
   } catch (err) {
     next(err)
   }
+}
+
+// İrsaliye sil — Cascade ile ExitItem + CaseMovement + LedgerEntry düşer
+export async function deleteExit(req, res, next) {
+  try {
+    const id = Number(req.params.id)
+    const exit = await prisma.exit.findUnique({ where: { id } })
+    if (!exit) return res.status(404).json({ error: 'İrsaliye bulunamadı' })
+    await prisma.exit.delete({ where: { id } })
+    res.status(204).end()
+  } catch (err) { next(err) }
 }

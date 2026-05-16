@@ -17,6 +17,7 @@ enum UserRole {
   DEPO
   OPERATOR
   ACCOUNTING
+  CASE_MANAGER
 }
 
 enum LedgerEntryType {
@@ -74,6 +75,7 @@ model Product {
   name    String  @unique
   entries Entry[]
   prices  Price[]
+  returns ReturnRecord[]
 }
 
 model Quality {
@@ -93,12 +95,14 @@ model Market {
   ledgerEntries LedgerEntry[]
   transfersFrom Transfer[]     @relation("TransferFrom")
   transfersTo   Transfer[]     @relation("TransferTo")
+  returns       ReturnRecord[]
 }
 
 model Entry {
-  id               Int            @id @default(autoincrement())
-  vehicleSession   VehicleSession @relation(fields: [vehicleSessionId], references: [id], onDelete: Restrict)
-  vehicleSessionId Int
+  id               Int             @id @default(autoincrement())
+  returnRecord     ReturnRecord?
+  vehicleSession   VehicleSession? @relation(fields: [vehicleSessionId], references: [id], onDelete: SetNull)
+  vehicleSessionId Int?
   product          Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
   productId        Int
   producer         Producer?      @relation(fields: [producerId], references: [id], onDelete: Restrict)
@@ -129,14 +133,16 @@ model Exit {
 }
 
 model ExitItem {
-  id      Int     @id @default(autoincrement())
-  exit    Exit    @relation(fields: [exitId], references: [id], onDelete: Cascade)
-  exitId  Int
-  entry   Entry   @relation(fields: [entryId], references: [id], onDelete: Restrict)
-  entryId Int
-  loaded  Boolean @default(true)
+  id         Int     @id @default(autoincrement())
+  exit       Exit    @relation(fields: [exitId], references: [id], onDelete: Cascade)
+  exitId     Int
+  entry      Entry   @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  entryId    Int
+  loaded     Boolean @default(true)
+  pricePerKg Float?  // Exit oluşurken o anki fiyatın snapshot'ı — sonradan fiyat değişse de irsaliye tutarı sabit kalır
 
   @@unique([exitId, entryId])
+  @@unique([entryId])
 }
 
 // Günlük ürün fiyatları — muhasebeci admin panelden girer
@@ -157,19 +163,20 @@ model Price {
 
 // Finansal hareket — bayi (müşteri) ve üretici cari hesapları
 model LedgerEntry {
-  id         Int             @id @default(autoincrement())
-  type       LedgerEntryType
-  amount     Float
-  market     Market?         @relation(fields: [marketId], references: [id], onDelete: Restrict)
-  marketId   Int?
-  producer   Producer?       @relation(fields: [producerId], references: [id], onDelete: Restrict)
-  producerId Int?
-  exit       Exit?           @relation(fields: [exitId], references: [id], onDelete: Cascade)
-  exitId     Int?            @unique
-  note       String?
-  occurredAt DateTime        @default(now())
-  createdAt  DateTime        @default(now())
-  createdBy  String?
+  id           Int             @id @default(autoincrement())
+  type         LedgerEntryType
+  amount       Float
+  market       Market?         @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId     Int?
+  producer     Producer?       @relation(fields: [producerId], references: [id], onDelete: Restrict)
+  producerId   Int?
+  exit         Exit?           @relation(fields: [exitId], references: [id], onDelete: Cascade)
+  exitId       Int?            @unique
+  returnRecord ReturnRecord?
+  note         String?
+  occurredAt   DateTime        @default(now())
+  createdAt    DateTime        @default(now())
+  createdBy    String?
 
   @@index([marketId, occurredAt])
   @@index([producerId, occurredAt])
@@ -178,34 +185,63 @@ model LedgerEntry {
 
 // Kasa hareketi — bayi & şoför kasa takibi
 model CaseMovement {
-  id         Int              @id @default(autoincrement())
-  type       CaseMovementType
-  qty        Int
-  market     Market?          @relation(fields: [marketId], references: [id], onDelete: Restrict)
-  marketId   Int?
-  driver     Driver?          @relation(fields: [driverId], references: [id], onDelete: Restrict)
-  driverId   Int?
-  exit       Exit?            @relation(fields: [exitId], references: [id], onDelete: Cascade)
-  exitId     Int?             @unique
-  note       String?
-  occurredAt DateTime         @default(now())
-  createdAt  DateTime         @default(now())
-  createdBy  String?
+  id           Int              @id @default(autoincrement())
+  type         CaseMovementType
+  qty          Int
+  market       Market?          @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId     Int?
+  driver       Driver?          @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  driverId     Int?
+  exit         Exit?            @relation(fields: [exitId], references: [id], onDelete: Cascade)
+  exitId       Int?             @unique
+  returnRecord ReturnRecord?
+  note         String?
+  occurredAt   DateTime         @default(now())
+  createdAt    DateTime         @default(now())
+  createdBy    String?
 
   @@index([marketId, occurredAt])
   @@index([driverId, occurredAt])
 }
 
+// Bayiden mal iadesi: Entry (opt) + LedgerEntry + CaseMovement tek kayıtta toplanır.
+// Silinince üç bağlı kayıt da silinir (cascade reversal).
+model ReturnRecord {
+  id              Int           @id @default(autoincrement())
+  market          Market        @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId        Int
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productId       Int
+  qualityId       Int?
+  caseCount       Int
+  weight          Float
+  pricePerKg      Float
+  amount          Float
+  weak            Boolean       @default(false)
+  discarded       Boolean       @default(false)
+  note            String?
+  entry           Entry?        @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  entryId         Int?          @unique
+  ledgerEntry     LedgerEntry?  @relation(fields: [ledgerEntryId], references: [id], onDelete: SetNull)
+  ledgerEntryId   Int?          @unique
+  caseMovement    CaseMovement? @relation(fields: [caseMovementId], references: [id], onDelete: SetNull)
+  caseMovementId Int?          @unique
+  createdAt       DateTime      @default(now())
+  createdBy       String?
+
+  @@index([marketId, createdAt])
+}
+
 // Sistemi kullanan kullanıcılar — operatörler (sadece referans),
 // adminler ve depo personeli (giriş yapabilir)
 model User {
-  id           Int      @id @default(autoincrement())
+  id           Int        @id @default(autoincrement())
   name         String
-  username     String?  @unique
+  username     String?    @unique
   passwordHash String?
-  role         UserRole @default(OPERATOR)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
+  roles        UserRole[] @default([OPERATOR])
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
 }
 
 // Depodan başka pazara transfer geçmişi

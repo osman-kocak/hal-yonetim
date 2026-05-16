@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { ExportButton } from '@/components/ui/ExportButton'
 import { formatDate, today } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 import { Plus, Trash2, Store, User, Wallet, FileText, TrendingUp, TrendingDown } from 'lucide-react'
@@ -155,9 +156,27 @@ function LedgerTab({ scope }) {
         <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
           {isMarket ? 'Bayi Bakiyeleri' : 'Üretici Bakiyeleri'}
         </h2>
-        <Button onClick={() => setModalOpen(true)} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Yeni Hareket
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            title={`Finans - ${isMarket ? 'Bayi' : 'Üretici'} Hareketleri`}
+            filename={`finans-${isMarket ? 'bayi' : 'uretici'}-${new Date().toISOString().slice(0, 10)}`}
+            prepare={() => ({
+              columns: ['Tarih', 'Tip', isMarket ? 'Bayi' : 'Üretici', 'Tutar', 'Not', 'Yapan'],
+              rows: entries.map((e) => [
+                formatDate(e.occurredAt),
+                TYPE_META[e.type]?.label ?? e.type,
+                isMarket ? (e.market ? `#${e.market.no} ${e.market.name}` : '—') : (e.producer?.name ?? '—'),
+                formatTL(e.amount),
+                e.note ?? '',
+                e.createdBy ?? '',
+              ]),
+            })}
+            disabled={!entries.length}
+          />
+          <Button onClick={() => setModalOpen(true)} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" /> Yeni Hareket
+          </Button>
+        </div>
       </div>
 
       {balances.length === 0 ? (
@@ -215,16 +234,16 @@ function LedgerTab({ scope }) {
           <EmptyState icon="💵" title="Hareket yok" description="Filtreyi değiştir veya yeni hareket ekle" />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs sm:text-sm">
               <thead className="bg-gray-50 border-b border-border">
                 <tr>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Tarih</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Tip</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">{isMarket ? 'Bayi' : 'Üretici'}</th>
-                  <th className="p-3 text-right font-semibold text-text-secondary">Tutar</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Not</th>
-                  <th className="p-3 text-left font-semibold text-text-secondary">Yapan</th>
-                  <th className="p-3 text-right font-semibold text-text-secondary">İşlem</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary hidden md:table-cell">Tarih</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Tip</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">{isMarket ? 'Bayi' : 'Üretici'}</th>
+                  <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Tutar</th>
+                  <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Not</th>
+                  <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Yapan</th>
+                  <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -233,29 +252,30 @@ function LedgerTab({ scope }) {
                   const isAuto = !!e.exitId
                   return (
                     <tr key={e.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="p-3 whitespace-nowrap text-text-primary">{formatDate(e.occurredAt)}</td>
-                      <td className="p-3">
+                      <td className="p-3 whitespace-nowrap text-text-primary hidden md:table-cell">{formatDate(e.occurredAt)}</td>
+                      <td className="p-2 sm:p-3">
                         <Badge variant={meta.variant}>{meta.label}</Badge>
                         {isAuto && (
-                          <span className="ml-2 inline-flex items-center gap-1 text-xs text-text-muted">
+                          <span className="ml-1 sm:ml-2 inline-flex items-center gap-1 text-[10px] sm:text-xs text-text-muted">
                             <FileText className="w-3 h-3" />
                             #{e.exitId}
                           </span>
                         )}
+                        <div className="md:hidden text-[10px] text-text-muted mt-1">{formatDate(e.occurredAt)}</div>
                       </td>
-                      <td className="p-3 text-text-primary">
+                      <td className="p-2 sm:p-3 text-text-primary">
                         {isMarket
                           ? (e.market ? `#${e.market.no} ${e.market.name}` : '—')
                           : (e.producer?.name ?? '—')}
                       </td>
-                      <td className="p-3 text-right font-semibold tabular-nums">
+                      <td className="p-2 sm:p-3 text-right font-semibold tabular-nums">
                         <span className={cn(e.amount < 0 ? 'text-blue-700' : 'text-text-primary')}>
                           {formatTL(e.amount)}
                         </span>
                       </td>
-                      <td className="p-3 text-text-muted text-xs max-w-xs truncate">{e.note ?? '—'}</td>
-                      <td className="p-3 text-text-muted text-xs">{e.createdBy ?? '—'}</td>
-                      <td className="p-3 text-right">
+                      <td className="p-3 text-text-muted text-xs max-w-xs truncate hidden lg:table-cell">{e.note ?? '—'}</td>
+                      <td className="p-3 text-text-muted text-xs hidden lg:table-cell">{e.createdBy ?? '—'}</td>
+                      <td className="p-2 sm:p-3 text-right">
                         {!isAuto && (
                           <button onClick={() => setDeleteTarget(e)} className="p-2 rounded-lg hover:bg-red-50 text-error transition-colors" title="Sil">
                             <Trash2 className="w-4 h-4" />

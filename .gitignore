@@ -30,3 +30,6 @@ coverage/
 
 # Tool metadata
 .claude-flow/
+
+# Deploy config (local-only VPS bilgileri)
+scripts/deploy.env

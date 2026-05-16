@@ -23,18 +23,18 @@ export async function login(req, res, next) {
     }
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, name: user.name },
+      { id: user.id, username: user.username, roles: user.roles, name: user.name },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN ?? '8h' }
     )
-    res.json({ token, user: { id: user.id, name: user.name, username: user.username, role: user.role } })
+    res.json({ token, user: { id: user.id, name: user.name, username: user.username, roles: user.roles } })
   } catch (err) {
     next(err)
   }
 }
 
 export async function me(req, res) {
-  res.json({ id: req.user.id, username: req.user.username, role: req.user.role, name: req.user.name })
+  res.json({ id: req.user.id, username: req.user.username, roles: req.user.roles, name: req.user.name })
 }
 
 // --- FIELD WHITELISTS (mass-assignment protection) ---
@@ -44,7 +44,14 @@ const ALLOWED_FIELDS = {
   product:  ['name'],
   quality:  ['name'],
   market:   ['no', 'name'],
-  user:     ['name', 'username', 'role', 'active'],
+  user:     ['name', 'username', 'roles', 'active'],
+}
+
+const VALID_ROLES = ['ADMIN', 'DEPO', 'OPERATOR', 'ACCOUNTING', 'CASE_MANAGER']
+function normalizeRoles(input) {
+  if (!Array.isArray(input)) return null
+  const cleaned = [...new Set(input.map(String).map((r) => r.toUpperCase()))].filter((r) => VALID_ROLES.includes(r))
+  return cleaned.length ? cleaned : null
 }
 
 function pick(obj, fields) {
@@ -94,7 +101,7 @@ export const qualityCrud = crudFor('quality', { name: 'asc' })
 export const marketCrud = crudFor('market', { no: 'asc' })
 
 // --- USER CRUD (password hashing + select projection) ---
-const USER_SAFE = { id: true, name: true, username: true, role: true, active: true, createdAt: true }
+const USER_SAFE = { id: true, name: true, username: true, roles: true, active: true, createdAt: true }
 
 export const userCrud = {
   async getAll(req, res, next) {
@@ -107,7 +114,11 @@ export const userCrud = {
     try {
       const data = pick(req.body, ALLOWED_FIELDS.user)
       const { password } = req.body
-      // Kullanıcı adı verilmişse, şifre de zorunludur (giriş için)
+      if (data.roles !== undefined) {
+        const roles = normalizeRoles(data.roles)
+        if (!roles) return res.status(400).json({ error: 'En az bir geçerli rol seçilmeli' })
+        data.roles = roles
+      }
       if (data.username && !password) {
         return res.status(400).json({ error: 'Kullanıcı adı belirlendiyse şifre zorunlu' })
       }
@@ -123,6 +134,11 @@ export const userCrud = {
     try {
       const data = pick(req.body, ALLOWED_FIELDS.user)
       const { password } = req.body
+      if (data.roles !== undefined) {
+        const roles = normalizeRoles(data.roles)
+        if (!roles) return res.status(400).json({ error: 'En az bir geçerli rol seçilmeli' })
+        data.roles = roles
+      }
       if (password) data.passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS)
       const user = await prisma.user.update({
         where: { id: Number(req.params.id) },

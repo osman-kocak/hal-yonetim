@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { roleHome } from '@/components/ProtectedRoute'
 
 export function LoginPage() {
   const [username, setUsername] = useState('')
@@ -13,7 +12,6 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
   const login = useAuthStore((s) => s.login)
   const navigate = useNavigate()
-  const location = useLocation()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -23,9 +21,7 @@ export function LoginPage() {
     try {
       const { token, user } = await api.adminLogin(username, password)
       login(token, user)
-      // Geldiği sayfaya geri dön, yoksa role'a göre yönlendir
-      const from = location.state?.from
-      navigate(from && from !== '/giris' ? from : roleHome(user.role))
+      navigate('/')
     } catch (err) {
       setError(err.response?.data?.error ?? 'Giriş başarısız')
     } finally {

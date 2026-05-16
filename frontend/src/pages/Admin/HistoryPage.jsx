@@ -10,6 +10,7 @@ import { formatDate, formatWeight, today } from '@/utils/formatters'
 import { generateIrsaliye } from '@/utils/pdfGenerator'
 import { cn } from '@/utils/cn'
 import { ChevronDown, ChevronRight, FileText, Pencil } from 'lucide-react'
+import { ExportButton } from '@/components/ui/ExportButton'
 
 const TABS = ['İrsaliyeler', 'Giriş Kayıtları']
 
@@ -57,7 +58,52 @@ export function HistoryPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-xl font-bold text-text-primary mb-6">🔍 Takip & Geçmiş</h1>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <h1 className="text-xl font-bold text-text-primary">🔍 Takip & Geçmiş</h1>
+        <ExportButton
+          title={tab === 0 ? 'İrsaliye Geçmişi' : 'Mal Kabul Geçmişi'}
+          filename={`${tab === 0 ? 'irsaliye' : 'mal-kabul'}-${date}`}
+          prepare={() => {
+            if (tab === 0) {
+              const rows = []
+              data.forEach((ex) => {
+                ex.items.forEach((item) => {
+                  rows.push([
+                    formatDate(ex.createdAt),
+                    `${ex.market?.no ?? ''} ${ex.market?.name ?? ''}`.trim(),
+                    item.entry?.product?.name ?? '—',
+                    item.entry?.quality?.name ?? '',
+                    item.entry?.caseCount ?? '',
+                    item.entry?.weight ? Number(item.entry.weight).toFixed(2) : '',
+                    item.pricePerKg != null ? Number(item.pricePerKg).toFixed(2) : '',
+                    item.totalPrice != null ? Number(item.totalPrice).toFixed(2) : '',
+                  ])
+                })
+              })
+              return {
+                columns: ['Tarih', 'Pazar', 'Ürün', 'Kalite', 'Kasa', 'Ağırlık (kg)', 'TL/kg', 'Toplam (TL)'],
+                rows,
+              }
+            } else {
+              return {
+                columns: ['Tarih', 'Ürün', 'Kalite', 'Şoför', 'Üretici', 'Kasa', 'Ağırlık (kg)', 'Pazar', 'Zayıf'],
+                rows: data.map((e) => [
+                  formatDate(e.createdAt),
+                  e.product?.name ?? '—',
+                  e.quality?.name ?? '',
+                  e.vehicleSession?.driver?.name ?? '—',
+                  e.producer?.name ?? '—',
+                  e.caseCount,
+                  e.weight ? Number(e.weight).toFixed(2) : '',
+                  e.market ? (e.market.no === 0 ? 'Depo' : `#${e.market.no} ${e.market.name}`) : '—',
+                  e.weak ? 'Evet' : '',
+                ]),
+              }
+            }
+          }}
+          disabled={!data.length}
+        />
+      </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-6">
         {/* Tab */}
@@ -198,46 +244,53 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit }) {
                   </button>
                 </div>
               </div>
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b border-border">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-semibold text-text-secondary">Ürün</th>
-                    <th className="px-4 py-2 text-left font-semibold text-text-secondary">Kalite</th>
-                    <th className="px-4 py-2 text-left font-semibold text-text-secondary">Şoför</th>
-                    <th className="px-4 py-2 text-right font-semibold text-text-secondary">Kasa</th>
-                    <th className="px-4 py-2 text-right font-semibold text-text-secondary">Ağırlık</th>
-                    <th className="px-4 py-2 text-right font-semibold text-text-secondary">₺/kg</th>
-                    <th className="px-4 py-2 text-right font-semibold text-text-secondary">Tutar</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {ex.items.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2">{item.entry?.product?.name ?? '—'}</td>
-                      <td className="px-4 py-2">
-                        <Badge variant={item.entry?.quality?.name === 'A' ? 'quality-a' : 'quality-b'}>
-                          {item.entry?.quality?.name ?? '?'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2 text-text-secondary">{item.entry?.vehicleSession?.driver?.name ?? '—'}</td>
-                      <td className="px-4 py-2 text-right">{item.entry?.caseCount}</td>
-                      <td className="px-4 py-2 text-right">{formatWeight(item.entry?.weight)}</td>
-                      <td className="px-4 py-2 text-right">{item.pricePerKg != null ? `₺${Number(item.pricePerKg).toFixed(2)}` : '—'}</td>
-                      <td className="px-4 py-2 text-right font-medium">{item.totalPrice != null ? `₺${Number(item.totalPrice).toFixed(2)}` : '—'}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs sm:text-sm">
+                  <thead className="bg-gray-50 border-b border-border">
+                    <tr>
+                      <th className="px-2 sm:px-4 py-2 text-left font-semibold text-text-secondary">Ürün</th>
+                      <th className="px-4 py-2 text-left font-semibold text-text-secondary hidden md:table-cell">Kalite</th>
+                      <th className="px-4 py-2 text-left font-semibold text-text-secondary hidden lg:table-cell">Şoför</th>
+                      <th className="px-2 sm:px-4 py-2 text-right font-semibold text-text-secondary">Kasa</th>
+                      <th className="px-4 py-2 text-right font-semibold text-text-secondary hidden sm:table-cell">Ağırlık</th>
+                      <th className="px-4 py-2 text-right font-semibold text-text-secondary hidden md:table-cell">₺/kg</th>
+                      <th className="px-2 sm:px-4 py-2 text-right font-semibold text-text-secondary">Tutar</th>
                     </tr>
-                  ))}
-                </tbody>
-                {ex.items.some((i) => i.totalPrice != null) && (
-                  <tfoot>
-                    <tr className="bg-gray-50 font-semibold">
-                      <td className="px-4 py-2" colSpan={6}>Toplam Tutar</td>
-                      <td className="px-4 py-2 text-right text-primary">
-                        ₺{ex.items.reduce((s, i) => s + (i.totalPrice ?? 0), 0).toFixed(2)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {ex.items.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-2 sm:px-4 py-2">
+                          <div className="flex flex-col">
+                            <span>{item.entry?.product?.name ?? '—'}</span>
+                            <span className="lg:hidden text-[10px] text-text-muted">{item.entry?.vehicleSession?.driver?.name ?? '—'}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 hidden md:table-cell">
+                          <Badge variant={item.entry?.quality?.name === 'A' ? 'quality-a' : 'quality-b'}>
+                            {item.entry?.quality?.name ?? '?'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-2 text-text-secondary hidden lg:table-cell">{item.entry?.vehicleSession?.driver?.name ?? '—'}</td>
+                        <td className="px-2 sm:px-4 py-2 text-right tabular-nums">{item.entry?.caseCount}</td>
+                        <td className="px-4 py-2 text-right tabular-nums hidden sm:table-cell">{formatWeight(item.entry?.weight)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums hidden md:table-cell">{item.pricePerKg != null ? `₺${Number(item.pricePerKg).toFixed(2)}` : '—'}</td>
+                        <td className="px-2 sm:px-4 py-2 text-right font-medium tabular-nums">{item.totalPrice != null ? `₺${Number(item.totalPrice).toFixed(2)}` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {ex.items.some((i) => i.totalPrice != null) && (
+                    <tfoot>
+                      <tr className="bg-gray-50 font-semibold">
+                        <td className="px-2 sm:px-4 py-2" colSpan={6}>Toplam Tutar</td>
+                        <td className="px-2 sm:px-4 py-2 text-right text-primary tabular-nums">
+                          ₺{ex.items.reduce((s, i) => s + (i.totalPrice ?? 0), 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             </div>
           )}
         </div>
@@ -352,16 +405,16 @@ function EditExitModal({ exit, onClose, onSave }) {
             <label className="text-sm font-medium text-text-secondary block mb-1.5">
               #{exit.market?.no} {exit.market?.name} — Dahil Edilecek Girişler
             </label>
-            <div className="border border-border rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm">
                 <thead className="bg-gray-50 border-b border-border">
                   <tr>
-                    <th className="p-3 w-10"></th>
-                    <th className="p-3 text-left font-semibold text-text-secondary">Ürün</th>
-                    <th className="p-3 text-left font-semibold text-text-secondary">Kalite</th>
-                    <th className="p-3 text-right font-semibold text-text-secondary">Kasa</th>
-                    <th className="p-3 text-right font-semibold text-text-secondary">Ağırlık</th>
-                    <th className="p-3 text-left font-semibold text-text-secondary">Durum</th>
+                    <th className="p-2 sm:p-3 w-10"></th>
+                    <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Ürün</th>
+                    <th className="p-3 text-left font-semibold text-text-secondary hidden md:table-cell">Kalite</th>
+                    <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Kasa</th>
+                    <th className="p-3 text-right font-semibold text-text-secondary hidden sm:table-cell">Ağırlık</th>
+                    <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Durum</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -371,7 +424,7 @@ function EditExitModal({ exit, onClose, onSave }) {
                       onClick={() => toggle(entry.id)}
                       className={cn('cursor-pointer transition-colors', selected.has(entry.id) ? 'bg-primary-light/40' : 'hover:bg-gray-50')}
                     >
-                      <td className="p-3 text-center">
+                      <td className="p-2 sm:p-3 text-center">
                         <input
                           type="checkbox"
                           checked={selected.has(entry.id)}
@@ -380,18 +433,23 @@ function EditExitModal({ exit, onClose, onSave }) {
                           className="w-4 h-4 rounded accent-primary"
                         />
                       </td>
-                      <td className="p-3 font-medium">{entry.product?.name ?? '—'}</td>
-                      <td className="p-3">
+                      <td className="p-2 sm:p-3 font-medium">
+                        <div className="flex flex-col">
+                          <span>{entry.product?.name ?? '—'}</span>
+                          <span className="sm:hidden text-[10px] text-text-muted">{formatWeight(entry.weight)}</span>
+                        </div>
+                      </td>
+                      <td className="p-3 hidden md:table-cell">
                         <Badge variant={entry.quality?.name === 'A' ? 'quality-a' : 'quality-b'}>
                           {entry.quality?.name ?? '?'}
                         </Badge>
                       </td>
-                      <td className="p-3 text-right">{entry.caseCount}</td>
-                      <td className="p-3 text-right">{formatWeight(entry.weight)}</td>
-                      <td className="p-3">
+                      <td className="p-2 sm:p-3 text-right tabular-nums">{entry.caseCount}</td>
+                      <td className="p-3 text-right tabular-nums hidden sm:table-cell">{formatWeight(entry.weight)}</td>
+                      <td className="p-2 sm:p-3">
                         {entry._inExit
-                          ? <span className="text-xs text-primary font-medium">Bu irsaliyede</span>
-                          : <span className="text-xs text-text-muted">Bekliyor</span>}
+                          ? <span className="text-[10px] sm:text-xs text-primary font-medium">Bu irsaliyede</span>
+                          : <span className="text-[10px] sm:text-xs text-text-muted">Bekliyor</span>}
                       </td>
                     </tr>
                   ))}

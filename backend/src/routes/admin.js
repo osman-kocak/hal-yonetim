@@ -21,7 +21,7 @@ import {
 import { dailyReport, byMarketReport, byProductReport, topProducts } from '../controllers/reportController.js'
 import { getPrices, upsertPrice } from '../controllers/priceController.js'
 import { getExitHistory, getEntryHistory } from '../controllers/historyController.js'
-import { updateExit } from '../controllers/exitController.js'
+import { updateExit, deleteExit } from '../controllers/exitController.js'
 import {
   listMovements,
   createMovement,
@@ -101,6 +101,7 @@ router.post('/prices', upsertPrice)
 router.get('/history/exits', getExitHistory)
 router.get('/history/entries', getEntryHistory)
 router.put('/exits/:id', updateExit)
+router.delete('/exits/:id', deleteExit)
 
 // Transferler (geçmiş)
 router.get('/transfers', listTransfers)

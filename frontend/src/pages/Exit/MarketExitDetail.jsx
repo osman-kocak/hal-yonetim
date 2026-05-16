@@ -83,6 +83,7 @@ export function MarketExitDetail() {
   }
 
   async function handleCreateExit() {
+    if (market?.no === 0) { addToast('Depoya irsaliye kesilemez', 'error'); return }
     if (!selected.size) { addToast('En az bir ürün seçin', 'error'); return }
     setSubmitting(true)
     try {
@@ -101,6 +102,30 @@ export function MarketExitDetail() {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
         <LoadingSpinner size="lg" className="text-primary" />
+      </div>
+    )
+  }
+
+  // Depo (no=0) için irsaliye kesilemez — kullanıcıyı bilgilendir
+  if (market?.no === 0) {
+    return (
+      <div className="min-h-screen bg-bg">
+        <header className="bg-white border-b border-border px-4 py-4">
+          <div className="max-w-5xl mx-auto flex items-center gap-4">
+            <button onClick={() => navigate('/cikis')} className="p-2 rounded-lg hover:bg-gray-100 text-text-muted">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h1 className="text-lg font-bold text-text-primary">Depo</h1>
+          </div>
+        </header>
+        <main className="p-4 sm:p-6 max-w-5xl mx-auto">
+          <EmptyState
+            icon="📦"
+            title="Depoya irsaliye kesilemez"
+            description="Depo bir pazar değil — buradaki ürünleri pazarlara aktarmak için Depo Transfer sayfasını kullan."
+            action={<Button onClick={() => navigate('/depo')}>Depo Transfer'e git</Button>}
+          />
+        </main>
       </div>
     )
   }
@@ -141,10 +166,10 @@ export function MarketExitDetail() {
         ) : (
           <>
             <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-card mb-6">
-              <table className="w-full text-sm">
+              <table className="w-full text-xs sm:text-sm">
                 <thead className="bg-gray-50 border-b border-border">
                   <tr>
-                    <th className="p-4 text-left w-12">
+                    <th className="p-2 sm:p-4 text-left w-10 sm:w-12">
                       <input
                         type="checkbox"
                         checked={selected.size > 0 && selected.size === entries.length}
@@ -152,12 +177,12 @@ export function MarketExitDetail() {
                         className="w-4 h-4 rounded accent-primary"
                       />
                     </th>
-                    <th className="p-4 text-left font-semibold text-text-secondary">Ürün</th>
-                    <th className="p-4 text-left font-semibold text-text-secondary">Kalite</th>
-                    <th className="p-4 text-right font-semibold text-text-secondary">Kasa</th>
-                    <th className="p-4 text-right font-semibold text-text-secondary">Kilo</th>
-                    <th className="p-4 text-right font-semibold text-text-secondary">₺/kg</th>
-                    <th className="p-4 text-left font-semibold text-text-secondary hidden sm:table-cell">Tarih</th>
+                    <th className="p-2 sm:p-4 text-left font-semibold text-text-secondary">Ürün</th>
+                    <th className="p-4 text-left font-semibold text-text-secondary hidden md:table-cell">Kalite</th>
+                    <th className="p-2 sm:p-4 text-right font-semibold text-text-secondary">Kasa</th>
+                    <th className="p-2 sm:p-4 text-right font-semibold text-text-secondary hidden sm:table-cell">Kilo</th>
+                    <th className="p-4 text-right font-semibold text-text-secondary hidden md:table-cell">₺/kg</th>
+                    <th className="p-4 text-left font-semibold text-text-secondary hidden lg:table-cell">Tarih</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -176,20 +201,32 @@ export function MarketExitDetail() {
                           className="w-4 h-4 rounded accent-primary"
                         />
                       </td>
-                      <td className="p-4 font-medium text-text-primary">{entry.product.name}</td>
-                      <td className="p-4">
-                        <Badge variant={entry.quality.name === 'A' ? 'quality-a' : 'quality-b'}>
-                          {entry.quality.name}
-                        </Badge>
+                      <td className="p-2 sm:p-4 font-medium text-text-primary">
+                        <div className="flex flex-col">
+                          <span>{entry.product?.name ?? '—'}</span>
+                          <span className="sm:hidden text-[10px] text-text-muted">
+                            {formatWeight(entry.weight)}
+                            {priceMap[`${entry.productId}_${entry.qualityId}`] && ` · ₺${Number(priceMap[`${entry.productId}_${entry.qualityId}`]).toFixed(2)}/kg`}
+                          </span>
+                        </div>
                       </td>
-                      <td className="p-4 text-right text-text-primary">{entry.caseCount}</td>
-                      <td className="p-4 text-right text-text-primary">{formatWeight(entry.weight)}</td>
-                      <td className="p-4 text-right text-text-muted">
+                      <td className="p-4 hidden md:table-cell">
+                        {entry.quality ? (
+                          <Badge variant={entry.quality.name === 'A' ? 'quality-a' : 'quality-b'}>
+                            {entry.quality.name}
+                          </Badge>
+                        ) : (
+                          <span className="text-text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="p-2 sm:p-4 text-right text-text-primary tabular-nums">{entry.caseCount}</td>
+                      <td className="p-2 sm:p-4 text-right text-text-primary tabular-nums hidden sm:table-cell">{formatWeight(entry.weight)}</td>
+                      <td className="p-4 text-right text-text-muted hidden md:table-cell">
                         {priceMap[`${entry.productId}_${entry.qualityId}`]
                           ? `₺${Number(priceMap[`${entry.productId}_${entry.qualityId}`]).toFixed(2)}`
                           : '—'}
                       </td>
-                      <td className="p-4 text-text-muted hidden sm:table-cell">{formatDate(entry.createdAt)}</td>
+                      <td className="p-4 text-text-muted hidden lg:table-cell">{formatDate(entry.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
