@@ -118,10 +118,10 @@ export function generateIrsaliye(exit) {
   doc.setFont('Arial', 'bold')
   doc.setFontSize(9)
   doc.setTextColor(255, 255, 255)
-  doc.text('Bu irsaliye MS Yazılım Hal Yönetim Sistemi ile oluşturulmuştur.', pageW / 2, bannerY + 3, { align: 'center' })
+  doc.text('Bu irsaliye Biapp Yazılım Hal Yönetim Sistemi ile oluşturulmuştur.', pageW / 2, bannerY + 3, { align: 'center' })
   doc.setFont('Arial', 'normal')
   doc.setFontSize(8)
-  doc.text('Yazılımı edinmek için iletişime geçin: bisiparisadm@gmail.com', pageW / 2, bannerY + 10, { align: 'center' })
+  doc.text('Yazılımı edinmek için iletişime geçin: osmankocak@bi-siparis.com', pageW / 2, bannerY + 10, { align: 'center' })
   doc.text('Tel / WhatsApp: +90 533 846 12 60', pageW / 2, bannerY + 16, { align: 'center' })
   doc.setTextColor(0, 0, 0)
 

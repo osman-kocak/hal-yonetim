@@ -57,14 +57,14 @@ export function exportToPDF({ title, subtitle, columns, rows, filename }) {
     margin: { left: MARGIN, right: MARGIN },
   })
 
-  // Alt banner — MS Yazılım
+  // Alt banner — Biapp Yazılım
   const pageCount = doc.getNumberOfPages()
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i)
     doc.setFontSize(7)
     doc.setFont('Arial', 'normal')
     doc.setTextColor(150)
-    doc.text(`Sayfa ${i} / ${pageCount}  ·  MS Yazılım Hal Yönetim`, PAGE_WIDTH / 2, doc.internal.pageSize.height - 8, { align: 'center' })
+    doc.text(`Sayfa ${i} / ${pageCount}  ·  Biapp Yazılım Hal Yönetim`, PAGE_WIDTH / 2, doc.internal.pageSize.height - 8, { align: 'center' })
   }
 
   const safeName = (filename || title || 'rapor').replace(/[^a-z0-9_-]+/gi, '_')

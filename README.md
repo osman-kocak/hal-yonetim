@@ -344,10 +344,10 @@ hal-yonetim/
 
 ## 📜 Lisans
 
-Özel kullanım — **MS Yazılım**.
+Özel kullanım — **Biapp Yazılım**.
 
 ## 📞 İletişim
 
-- **MS Yazılım**
-- Email: **bisiparisadm@gmail.com**
+- **Biapp Yazılım**
+- Email: **osmankocak@bi-siparis.com**
 - Tel / WhatsApp: **+90 533 846 12 60**
