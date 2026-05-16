@@ -21,6 +21,7 @@
 - 🔐 **JWT auth + role guard** — Frontend `ProtectedRoute` + backend middleware
 - ⚡ **Performans optimize** — Vendor chunk split, PDF/XLSX lazy, auto-refresh `document.hidden` pause
 - 📄 **Pagination** — `/admin/takip` (irsaliye + mal kabul geçmişi) sayfa bazlı (50/page)
+- 🍅 **Ürün emoji ikonları** — Her ürüne admin panelinden emoji atanabilir (🍅 Domates, 🍎 Elma…)
 
 ---
 

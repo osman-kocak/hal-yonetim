@@ -13,8 +13,10 @@ const PRODUCT_ICONS = {
   portakal: '🍊', mandalina: '🍊', üzüm: '🍇',
 }
 
-function getIcon(name) {
-  return PRODUCT_ICONS[name.toLowerCase()] ?? '🌱'
+function getIcon(product) {
+  // Önce DB'de saklı emoji, sonra isim-bazlı fallback, en son default
+  if (product?.icon) return product.icon
+  return PRODUCT_ICONS[product?.name?.toLowerCase()] ?? '🌱'
 }
 
 export function ProductSelect() {
@@ -50,7 +52,7 @@ export function ProductSelect() {
           <SelectCard
             key={p.id}
             label={p.name}
-            icon={getIcon(p.name)}
+            icon={getIcon(p)}
             onClick={() => selectProduct(p)}
           />
         ))}

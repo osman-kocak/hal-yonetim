@@ -41,7 +41,7 @@ export async function me(req, res) {
 const ALLOWED_FIELDS = {
   driver:   ['name'],
   producer: ['name', 'driverId'],
-  product:  ['name'],
+  product:  ['name', 'icon'],
   quality:  ['name'],
   market:   ['no', 'name'],
   user:     ['name', 'username', 'roles', 'active'],

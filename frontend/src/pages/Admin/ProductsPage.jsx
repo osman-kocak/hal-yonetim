@@ -35,8 +35,27 @@ export function ProductsPage() {
       icon="🌱"
       records={records}
       loading={loading}
-      fields={[{ name: 'name', label: 'Ürün Adı', placeholder: 'Domates' }]}
-      columns={[{ label: 'Ürün Adı', render: (r) => r.name }]}
+      fields={[
+        { name: 'name', label: 'Ürün Adı', placeholder: 'Domates' },
+        {
+          name: 'icon',
+          label: 'Emoji / İkon (opsiyonel)',
+          placeholder: '🍅',
+          optional: true,
+          help: 'Telefondan emoji klavyesini veya kopyala-yapıştır kullan. Örn: 🍅 🍎 🥒 🌶️ 🧅',
+        },
+      ]}
+      columns={[
+        {
+          label: 'Ürün',
+          render: (r) => (
+            <span className="flex items-center gap-2">
+              <span className="text-xl">{r.icon || '📦'}</span>
+              <span>{r.name}</span>
+            </span>
+          ),
+        },
+      ]}
       onCreate={onCreate}
       onUpdate={onUpdate}
       onDelete={onDelete}

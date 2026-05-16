@@ -73,6 +73,7 @@ model VehicleSession {
 model Product {
   id      Int     @id @default(autoincrement())
   name    String  @unique
+  icon    String? // Emoji veya kısa metin (örn. 🍅, 🍎)
   entries Entry[]
   prices  Price[]
   returns ReturnRecord[]
