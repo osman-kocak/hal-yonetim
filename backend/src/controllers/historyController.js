@@ -1,10 +1,20 @@
 import { prisma } from '../utils/prismaClient.js'
 import { getPriceMap } from './priceController.js'
 
-// Tüm irsaliyeleri getir (filtre: tarih, market)
+const DEFAULT_LIMIT = 50
+const MAX_LIMIT = 200
+
+function parsePagination(req) {
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(MAX_LIMIT, Math.max(1, Number(req.query.limit) || DEFAULT_LIMIT))
+  return { page, limit, skip: (page - 1) * limit }
+}
+
+// Tüm irsaliyeleri getir (filtre: tarih, market) — paginated
 export async function getExitHistory(req, res, next) {
   try {
     const { date, marketId } = req.query
+    const { page, limit, skip } = parsePagination(req)
     const where = {}
 
     if (date) {
@@ -13,25 +23,30 @@ export async function getExitHistory(req, res, next) {
     }
     if (marketId) where.marketId = Number(marketId)
 
-    const exits = await prisma.exit.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        market: true,
-        items: {
-          include: {
-            entry: {
-              include: {
-                product: true,
-                producer: true,
-                quality: true,
-                vehicleSession: { include: { driver: true } },
+    const [exits, total] = await Promise.all([
+      prisma.exit.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          market: true,
+          items: {
+            include: {
+              entry: {
+                include: {
+                  product: true,
+                  producer: true,
+                  quality: true,
+                  vehicleSession: { include: { driver: true } },
+                },
               },
             },
           },
         },
-      },
-    })
+      }),
+      prisma.exit.count({ where }),
+    ])
 
     // Unique tarihler için fiyat map'lerini paralel çek
     const uniqueDates = [...new Set(exits.map((e) => e.createdAt.toISOString().split('T')[0]))]
@@ -40,11 +55,12 @@ export async function getExitHistory(req, res, next) {
       uniqueDates.map(async (d) => { priceMaps[d] = await getPriceMap(new Date(d)) })
     )
 
-    const result = exits.map((ex) => {
+    const data = exits.map((ex) => {
       const priceMap = priceMaps[ex.createdAt.toISOString().split('T')[0]] ?? {}
       const itemsWithPrice = ex.items.map((item) => {
         const key = `${item.entry.productId}_${item.entry.qualityId}`
-        const pricePerKg = priceMap[key] ?? null
+        // Snapshot önceliği — ExitItem.pricePerKg saklı varsa onu kullan
+        const pricePerKg = item.pricePerKg != null ? item.pricePerKg : (priceMap[key] ?? null)
         const totalPrice = pricePerKg !== null ? pricePerKg * item.entry.weight : null
         return { ...item, pricePerKg, totalPrice }
       })
@@ -58,19 +74,20 @@ export async function getExitHistory(req, res, next) {
         itemCount: ex.items.length,
         totalCases: ex.items.reduce((s, i) => s + i.entry.caseCount, 0),
         totalWeight: ex.items.reduce((s, i) => s + i.entry.weight, 0),
-        drivers: [...new Set(ex.items.map((i) => i.entry.vehicleSession.driver.name))],
+        drivers: [...new Set(ex.items.map((i) => i.entry.vehicleSession?.driver?.name).filter(Boolean))],
         items: itemsWithPrice,
       }
     })
 
-    res.json(result)
+    res.json({ data, total, page, limit, hasMore: skip + data.length < total })
   } catch (err) { next(err) }
 }
 
-// Tüm giriş kayıtları (kim girdi, ne zaman, hangi araç)
+// Tüm giriş kayıtları — paginated
 export async function getEntryHistory(req, res, next) {
   try {
     const { date, driverId, marketId } = req.query
+    const { page, limit, skip } = parsePagination(req)
     const where = {}
 
     if (date) {
@@ -80,23 +97,28 @@ export async function getEntryHistory(req, res, next) {
     if (driverId) where.vehicleSession = { driverId: Number(driverId) }
     if (marketId) where.marketId = Number(marketId)
 
-    const entries = await prisma.entry.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        product: true,
-        producer: true,
-        quality: true,
-        market: true,
-        vehicleSession: { include: { driver: true } },
-        exitItems: { include: { exit: true } },
-      },
-    })
+    const [entries, total] = await Promise.all([
+      prisma.entry.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          product: true,
+          producer: true,
+          quality: true,
+          market: true,
+          vehicleSession: { include: { driver: true } },
+          exitItems: { include: { exit: true } },
+        },
+      }),
+      prisma.entry.count({ where }),
+    ])
 
-    res.json(entries.map((e) => ({
+    const data = entries.map((e) => ({
       id: e.id,
       createdAt: e.createdAt,
-      driver: e.vehicleSession.driver,
+      driver: e.vehicleSession?.driver ?? null,
       sessionId: e.vehicleSessionId,
       product: e.product,
       producer: e.producer,
@@ -107,6 +129,8 @@ export async function getEntryHistory(req, res, next) {
       weak: e.weak,
       exitedAt: e.exitItems[0]?.exit?.createdAt ?? null,
       irsaliyeId: e.exitItems[0]?.exitId ?? null,
-    })))
+    }))
+
+    res.json({ data, total, page, limit, hasMore: skip + data.length < total })
   } catch (err) { next(err) }
 }

@@ -18,6 +18,10 @@ export function HistoryPage() {
   const [tab, setTab] = useState(0)
   const [date, setDate] = useState(today())
   const [data, setData] = useState([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const PAGE_SIZE = 50
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState(new Set())
   const [editingExit, setEditingExit] = useState(null)
@@ -36,15 +40,25 @@ export function HistoryPage() {
   const fetchData = useCallback(() => {
     setLoading(true)
     setData([])
-    const params = { date }
+    const params = { date, page, limit: PAGE_SIZE }
     if (tab === 0 && filterMarket) params.marketId = filterMarket
     if (tab === 1 && filterDriver) params.driverId = filterDriver
     const fn = tab === 0 ? api.getExitHistory : api.getEntryHistory
     fn(params)
-      .then(setData)
+      .then((res) => {
+        // Backward compat: hem array hem { data, total, hasMore } destekle
+        if (Array.isArray(res)) {
+          setData(res); setTotal(res.length); setHasMore(false)
+        } else {
+          setData(res.data ?? []); setTotal(res.total ?? 0); setHasMore(res.hasMore ?? false)
+        }
+      })
       .catch(() => addToast('Veriler yüklenemedi', 'error'))
       .finally(() => setLoading(false))
-  }, [tab, date, filterMarket, filterDriver])
+  }, [tab, date, filterMarket, filterDriver, page])
+
+  // Filter değişince sayfayı 1'e dön
+  useEffect(() => { setPage(1) }, [tab, date, filterMarket, filterDriver])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -165,6 +179,32 @@ export function HistoryPage() {
       )}
       {!loading && data.length > 0 && tab === 1 && (
         <EntryHistoryTable data={data} />
+      )}
+
+      {!loading && total > PAGE_SIZE && (
+        <div className="flex items-center justify-between mt-4 bg-white border border-border rounded-2xl p-3">
+          <span className="text-sm text-text-muted">
+            Sayfa <span className="font-semibold text-text-primary">{page}</span> /{' '}
+            <span className="font-semibold">{Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
+            {' · '}Toplam <span className="font-semibold">{total}</span> kayıt
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ← Önceki
+            </button>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={!hasMore}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Sonraki →
+            </button>
+          </div>
+        </div>
       )}
 
       {editingExit && (

@@ -16,9 +16,11 @@
 - 🧺 **Boş kasa takibi** — Otomatik `DRIVER_IN`/`MARKET_OUT` + manuel düzeltme hareketleri
 - 📊 **Cari hesap** — Bayi alacak (irsaliye), üretici borç (manuel + ödeme)
 - 📈 **Raporlar** — Günlük, pazar bazlı, ürün bazlı, top products
-- 📥 **PDF + XLSX export** — Tüm liste sayfalarında (jsPDF + SheetJS)
+- 📥 **PDF + XLSX export** — Tüm liste sayfalarında (jsPDF + SheetJS, lazy-loaded)
 - 📱 **Mobile-first responsive** — Tablolar mobilde otomatik gizleme/yığma
 - 🔐 **JWT auth + role guard** — Frontend `ProtectedRoute` + backend middleware
+- ⚡ **Performans optimize** — Vendor chunk split, PDF/XLSX lazy, auto-refresh `document.hidden` pause
+- 📄 **Pagination** — `/admin/takip` (irsaliye + mal kabul geçmişi) sayfa bazlı (50/page)
 
 ---
 

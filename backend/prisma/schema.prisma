@@ -117,6 +117,10 @@ model Entry {
   exitItems        ExitItem[]
   transfers        Transfer[]
   createdAt        DateTime       @default(now())
+
+  // FIFO grouped transfer + market filter sorgularını hızlandırır
+  @@index([marketId, productId, createdAt])
+  @@index([createdAt])
 }
 
 model Exit {
