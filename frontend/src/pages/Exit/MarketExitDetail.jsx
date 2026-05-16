@@ -56,12 +56,16 @@ export function MarketExitDetail() {
     api.getPublicPrices(today()).then(setPriceMap).catch(() => {})
   }, [marketId])
 
-  // Countdown + periyodik yenileme
+  // Countdown + periyodik yenileme — sekme arka plandaysa veya seçim varsa pause
   useEffect(() => {
     const interval = setInterval(() => {
+      if (document.hidden) return // arka planda pause
       setCountdown((prev) => {
         if (prev <= 1) {
-          fetchEntries(false)
+          // Kullanıcı bir şey seçtiyse yenilemeyi atla (seçim kaybolmasın)
+          if (selectedRef.current.size === 0) {
+            fetchEntries(false)
+          }
           return REFRESH_INTERVAL
         }
         return prev - 1
@@ -88,7 +92,7 @@ export function MarketExitDetail() {
     setSubmitting(true)
     try {
       const exit = await api.createExit(Number(marketId), [...selected])
-      generateIrsaliye(exit)
+      await generateIrsaliye(exit)
       addToast('İrsaliye oluşturuldu, PDF indiriliyor ✓')
       navigate('/cikis')
     } catch (err) {

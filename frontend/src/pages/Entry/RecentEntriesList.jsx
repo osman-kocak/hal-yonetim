@@ -38,12 +38,15 @@ export function RecentEntriesList({ sessionId }) {
     api.getMarkets().then(setMarkets).catch(() => {})
   }, [sessionId, load])
 
-  // 10sn auto-refresh
+  // 10sn auto-refresh — modal/sekme arka plandaysa pause
   useEffect(() => {
-    if (!sessionId || editTarget) return
-    const id = setInterval(load, 10_000)
+    if (!sessionId || editTarget || deleteTarget) return
+    const id = setInterval(() => {
+      if (document.hidden) return
+      load()
+    }, 10_000)
     return () => clearInterval(id)
-  }, [sessionId, editTarget, load])
+  }, [sessionId, editTarget, deleteTarget, load])
 
   const totalCases = useMemo(() => entries.reduce((s, e) => s + (e.caseCount ?? 0), 0), [entries])
   const totalWeight = useMemo(() => entries.reduce((s, e) => s + (e.weight ?? 0), 0), [entries])

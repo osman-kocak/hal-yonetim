@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import { Download, FileSpreadsheet, FileText } from 'lucide-react'
-import { exportToPDF, exportToXLSX } from '@/utils/exportData'
 
 // Generic export butonu. Bir prepare fonksiyonu alır, çağrı yapılınca
 // { title, columns, rows, filename } döndürmesini bekler.
@@ -22,14 +21,16 @@ export function ExportButton({ title, subtitle, filename, prepare, disabled }) {
     return () => document.removeEventListener('mousedown', onClick)
   }, [open])
 
-  function trigger(type) {
+  async function trigger(type) {
     setOpen(false)
     try {
       const data = prepare()
       if (!data || !data.rows?.length) return
       const args = { title, subtitle, filename, ...data }
-      if (type === 'pdf') exportToPDF(args)
-      else exportToXLSX(args)
+      // Lazy load — sadece tıklandığında PDF/XLSX kütüphanelerini yükle
+      const { exportToPDF, exportToXLSX } = await import('@/utils/exportData')
+      if (type === 'pdf') await exportToPDF(args)
+      else await exportToXLSX(args)
     } catch (e) {
       console.error('Export hatası:', e)
     }

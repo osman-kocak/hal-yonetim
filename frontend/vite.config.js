@@ -16,4 +16,20 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('jspdf') || id.includes('html2canvas')) return 'pdf-vendor'
+          if (id.includes('xlsx')) return 'xlsx-vendor'
+          if (id.includes('react-router')) return 'react-vendor'
+          if (id.includes('/react/') || id.includes('react-dom')) return 'react-vendor'
+          if (id.includes('lucide-react')) return 'ui-vendor'
+          if (id.includes('zustand')) return 'ui-vendor'
+        },
+      },
+    },
+  },
 })

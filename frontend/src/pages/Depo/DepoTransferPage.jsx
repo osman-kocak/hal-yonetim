@@ -57,10 +57,14 @@ export function DepoTransferPage() {
   }, [load])
 
   useEffect(() => {
-    if (transferTarget) return // modal açıkken auto-refresh durur
-    const id = setInterval(() => load(true), REFRESH_INTERVAL_MS)
+    if (transferTarget || returnModalOpen) return // modal açıkken auto-refresh durur
+    const id = setInterval(() => {
+      // Sekme arka plandaysa istek atma (sessiz pause)
+      if (document.hidden) return
+      load(true)
+    }, REFRESH_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [load, transferTarget])
+  }, [load, transferTarget, returnModalOpen])
 
   const filtered = useMemo(() => {
     if (!query.trim()) return entries

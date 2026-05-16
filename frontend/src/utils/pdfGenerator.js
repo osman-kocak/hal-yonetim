@@ -1,18 +1,26 @@
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
-import { ARIAL_B64 } from './arialFont'
 import { formatDate } from './formatters'
 
-function initFont(doc) {
+// jsPDF + autotable + Arial font dynamic load — bundle ana chunk'a girmesin.
+async function loadPdfStack() {
+  const [{ default: jsPDF }, { default: autoTable }, { ARIAL_B64 }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+    import('./arialFont'),
+  ])
+  return { jsPDF, autoTable, ARIAL_B64 }
+}
+
+function initFont(doc, ARIAL_B64) {
   doc.addFileToVFS('Arial.ttf', ARIAL_B64)
   doc.addFont('Arial.ttf', 'Arial', 'normal')
   doc.addFileToVFS('Arial-Bold.ttf', ARIAL_B64)
   doc.addFont('Arial-Bold.ttf', 'Arial', 'bold')
 }
 
-export function generateIrsaliye(exit) {
+export async function generateIrsaliye(exit) {
+  const { jsPDF, autoTable, ARIAL_B64 } = await loadPdfStack()
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  initFont(doc)
+  initFont(doc, ARIAL_B64)
 
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
