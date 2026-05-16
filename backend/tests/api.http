@@ -1,0 +1,112 @@
+### Sağlık Kontrolü
+GET http://localhost:3001/health
+
+### ======== ARAÇ ========
+
+### Araç girişi başlat (driverId seed'den gelir, 1-5 arası)
+POST http://localhost:3001/api/vehicle/start
+Content-Type: application/json
+
+{ "driverId": 1 }
+
+### Araç tamamlandı
+POST http://localhost:3001/api/vehicle/complete
+Content-Type: application/json
+
+{ "vehicleSessionId": 1 }
+
+### ======== GİRİŞ ========
+
+### Ürün girişi kaydet
+POST http://localhost:3001/api/entry
+Content-Type: application/json
+
+{
+  "vehicleSessionId": 1,
+  "productId": 1,
+  "qualityId": 1,
+  "caseCount": 10,
+  "weight": 125.5,
+  "marketId": 3
+}
+
+### ======== PAZARLAR ========
+
+### Tüm pazarları listele (pendingCount dahil)
+GET http://localhost:3001/api/markets
+
+### Pazar'ın bekleyen girişlerini getir
+GET http://localhost:3001/api/markets/3/entries
+
+### ======== ÇIKIŞ ========
+
+### İrsaliye oluştur
+POST http://localhost:3001/api/exit
+Content-Type: application/json
+
+{ "marketId": 3, "entryIds": [1, 2] }
+
+### ======== ADMIN AUTH ========
+
+### Giriş yap — token'ı kopyala
+POST http://localhost:3001/api/admin/auth/login
+Content-Type: application/json
+
+{ "password": "admin123" }
+
+### ======== ADMIN CRUD (token gerekli) ========
+
+### Şoförleri listele
+GET http://localhost:3001/api/admin/drivers
+Authorization: Bearer <TOKEN>
+
+### Şoför ekle
+POST http://localhost:3001/api/admin/drivers
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{ "name": "Yeni Şoför" }
+
+### Şoför güncelle
+PUT http://localhost:3001/api/admin/drivers/1
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{ "name": "Ahmet Yılmaz (Güncellendi)" }
+
+### Şoför sil
+DELETE http://localhost:3001/api/admin/drivers/6
+Authorization: Bearer <TOKEN>
+
+### Ürünleri listele
+GET http://localhost:3001/api/admin/products
+Authorization: Bearer <TOKEN>
+
+### Pazarları listele (admin)
+GET http://localhost:3001/api/admin/markets
+Authorization: Bearer <TOKEN>
+
+### Pazar ekle
+POST http://localhost:3001/api/admin/markets
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{ "no": 21, "name": "Pazar 21" }
+
+### ======== RAPORLAR ========
+
+### Günlük özet
+GET http://localhost:3001/api/admin/reports/daily?date=2026-05-02
+Authorization: Bearer <TOKEN>
+
+### Pazar bazlı rapor
+GET http://localhost:3001/api/admin/reports/by-market?date=2026-05-02
+Authorization: Bearer <TOKEN>
+
+### Ürün bazlı rapor
+GET http://localhost:3001/api/admin/reports/by-product?date=2026-05-02
+Authorization: Bearer <TOKEN>
+
+### Son 7 günün en çok gelenleri
+GET http://localhost:3001/api/admin/reports/top-products?days=7&limit=10
+Authorization: Bearer <TOKEN>

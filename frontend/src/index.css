@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg text-text-primary;
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* iPad: dokunmatik seçim rengini kaldır */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* iPad: input focus'ta klavye açılmasın diye zoom önle — font-size 16px zorunlu */
+  input, textarea, select {
+    font-size: 16px !important;
+    /* iOS zoom'u tamamen kapat */
+    touch-action: manipulation;
+  }
+
+  /* Tüm tıklanabilir elemanlar için dokunmatik optimizasyon */
+  button, a, [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    /* iPad'de focus ring'i kaldır (klavye navigasyonu için değil, dokunmatik için) */
+    outline: none;
+  }
+
+  /* Klavye navigasyonu için focus ring'i koru */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  [role="button"]:focus-visible {
+    @apply ring-2 ring-primary ring-offset-2;
+  }
+
+  /* iOS overscroll bounce'u kapat */
+  html {
+    overscroll-behavior: none;
+  }
+}
