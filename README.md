@@ -344,7 +344,9 @@ hal-yonetim/
 
 ## 📜 Lisans
 
-Özel kullanım — **Biapp Yazılım**.
+**MIT License** — açık kaynak. Detay için [LICENSE](LICENSE) dosyasına bakın.
+
+Bu proje topluluk katkısına açıktır. Pull request'ler ve issue'lar memnuniyetle karşılanır.
 
 ## 📞 İletişim
 
