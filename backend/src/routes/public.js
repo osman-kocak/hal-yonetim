@@ -30,7 +30,10 @@ router.get('/drivers', async (req, res, next) => {
 
 router.get('/producers', async (req, res, next) => {
   try {
-    const producers = await prisma.producer.findMany({ orderBy: { name: 'asc' } })
+    const producers = await prisma.producer.findMany({
+      where: { active: true },
+      orderBy: { name: 'asc' },
+    })
     res.json(producers)
   } catch (err) { next(err) }
 })
@@ -43,7 +46,7 @@ router.get('/drivers/:id/producers', async (req, res, next) => {
       return res.status(400).json({ error: 'Geçersiz şoför kimliği' })
     }
     const producers = await prisma.producer.findMany({
-      where: { driverId },
+      where: { driverId, active: true },
       orderBy: { name: 'asc' },
     })
     res.json(producers)
@@ -52,7 +55,12 @@ router.get('/drivers/:id/producers', async (req, res, next) => {
 
 router.get('/products', async (req, res, next) => {
   try {
-    const products = await prisma.product.findMany({ orderBy: { name: 'asc' } })
+    const products = await prisma.product.findMany({
+      orderBy: [
+        { entries: { _count: 'desc' } },
+        { name: 'asc' },
+      ],
+    })
     res.json(products)
   } catch (err) { next(err) }
 })

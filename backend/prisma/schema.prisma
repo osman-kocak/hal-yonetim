@@ -52,6 +52,7 @@ model Driver {
 model Producer {
   id            Int            @id @default(autoincrement())
   name          String
+  active        Boolean        @default(true)
   driver        Driver?        @relation(fields: [driverId], references: [id], onDelete: SetNull)
   driverId      Int?
   entries       Entry[]
@@ -59,6 +60,7 @@ model Producer {
   createdAt     DateTime       @default(now())
 
   @@index([driverId])
+  @@index([active])
 }
 
 model VehicleSession {

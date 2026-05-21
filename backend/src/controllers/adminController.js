@@ -40,7 +40,7 @@ export async function me(req, res) {
 // --- FIELD WHITELISTS (mass-assignment protection) ---
 const ALLOWED_FIELDS = {
   driver:   ['name'],
-  producer: ['name', 'driverId'],
+  producer: ['name', 'driverId', 'active'],
   product:  ['name', 'icon'],
   quality:  ['name'],
   market:   ['no', 'name'],

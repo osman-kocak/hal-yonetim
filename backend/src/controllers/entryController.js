@@ -21,6 +21,15 @@ export async function createEntry(req, res, next) {
       return res.status(400).json({ error: 'Aktif araç oturumu bulunamadı' })
     }
 
+    if (producerId) {
+      const producer = await prisma.producer.findUnique({
+        where: { id: Number(producerId) },
+        select: { active: true },
+      })
+      if (!producer) return res.status(400).json({ error: 'Üretici bulunamadı' })
+      if (!producer.active) return res.status(400).json({ error: 'Pasif üreticiye giriş yapılamaz' })
+    }
+
     const entry = await prisma.$transaction(async (tx) => {
       const created = await tx.entry.create({
         data: {
@@ -166,6 +175,15 @@ export async function createEntryBatch(req, res, next) {
     })
     if (!session || session.status !== 'ACTIVE') {
       return res.status(400).json({ error: 'Aktif araç oturumu bulunamadı' })
+    }
+
+    if (producerId) {
+      const producer = await prisma.producer.findUnique({
+        where: { id: Number(producerId) },
+        select: { active: true },
+      })
+      if (!producer) return res.status(400).json({ error: 'Üretici bulunamadı' })
+      if (!producer.active) return res.status(400).json({ error: 'Pasif üreticiye giriş yapılamaz' })
     }
 
     for (const e of entries) {

@@ -51,6 +51,17 @@ export function ProducersPage() {
     setRecords((p) => p.filter((r) => r.id !== id))
   }
 
+  async function toggleActive(record) {
+    const next = !record.active
+    try {
+      await api.updateProducer(record.id, { active: next })
+      setRecords((p) => p.map((r) => r.id === record.id ? { ...r, active: next } : r))
+      addToast(next ? 'Üretici aktif edildi ✓' : 'Üretici pasif edildi')
+    } catch {
+      addToast('Durum değiştirilemedi', 'error')
+    }
+  }
+
   return (
     <CrudPage
       title="Üreticiler"
@@ -75,6 +86,21 @@ export function ProducersPage() {
           render: (r) => r.driverId
             ? <Badge variant="primary">{driverMap.get(r.driverId) ?? `#${r.driverId}`}</Badge>
             : <span className="text-text-muted text-xs">Atanmamış</span>,
+        },
+        {
+          label: 'Durum',
+          render: (r) => (
+            <button
+              type="button"
+              onClick={() => toggleActive(r)}
+              className="focus:outline-none"
+              title="Aktif/Pasif değiştir"
+            >
+              {r.active === false
+                ? <Badge variant="default">Pasif</Badge>
+                : <Badge variant="success">Aktif</Badge>}
+            </button>
+          ),
         },
       ]}
       onCreate={onCreate}

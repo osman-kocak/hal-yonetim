@@ -22,6 +22,8 @@
 - ⚡ **Performans optimize** — Vendor chunk split, PDF/XLSX lazy, auto-refresh `document.hidden` pause
 - 📄 **Pagination** — `/admin/takip` (irsaliye + mal kabul geçmişi) sayfa bazlı (50/page)
 - 🍅 **Ürün emoji ikonları** — Her ürüne admin panelinden emoji atanabilir (🍅 Domates, 🍎 Elma…)
+- 🔥 **Akıllı ürün sıralaması** — Mal kabul ekranındaki ürünler en çok girişi yapılana göre sıralanır (global)
+- 🔄 **Üretici aktif/pasif** — Admin panelinde tek tıkla toggle; pasif üreticiler operatör ekranında görünmez, backend de blok eder (cari kayıtlar korunur)
 
 ---
 
