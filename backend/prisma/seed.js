@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
+import { iconFor } from './productEmoji.js'
 
 const prisma = new PrismaClient()
 
@@ -105,9 +106,11 @@ async function main() {
   const products = await prisma.product.createMany({
     data: PRODUCT_NAMES.map((name) => {
       const key = groupKey(name)
+      const displayName = titleCaseTr(name)
       return {
-        name: titleCaseTr(name),
+        name: displayName,
         groupName: keyCount[key] >= 2 ? titleCaseTr(key) : null,
+        icon: iconFor(displayName),
       }
     }),
   })
