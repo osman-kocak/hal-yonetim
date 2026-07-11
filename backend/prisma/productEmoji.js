@@ -10,17 +10,17 @@ const OVERRIDE = {
 
 // İlk kelimeye (ana ürün) göre emoji
 const BY_KEY = {
-  ACUR: '🥒', ALIÇ: '🍒', ASMA: '🍃', AVAKADO: '🥑', AYŞE: '🫛', AYVA: '🍐',
+  ACUR: '🥒', ALIÇ: '🔴', ASMA: '🍃', AVAKADO: '🥑', AYŞE: '🫛', AYVA: '🍐',
   BAKLA: '🫛', BAMYA: '🫛', BARBUNYA: '🫘', BERGAMUT: '🍊', BEZELYE: '🫛',
   BİBER: '🫑', BROKOLİ: '🥦', CEVİZ: '🌰', ÇAĞLA: '🌰', ÇİÇEK: '🥦', ÇİLEK: '🍓',
-  DARI: '🌽', DERE: '🌿', DOMATES: '🍅', DRAGON: '🐉', DUT: '🫐', ELMA: '🍎',
+  DARI: '🌽', DERE: '🌿', DOMATES: '🍅', DRAGON: '🔴', DUT: '🫐', ELMA: '🍎',
   ENGİNAR: '🥬', ERİK: '🍑', GINNAP: '🟤', GOLYANDRO: '🌿', GÖMEÇ: '🌿',
-  GREYFUT: '🍊', GUAFA: '🍈', GULUMBRA: '🥬', HAVUÇ: '🥕', HURMA: '🟠',
-  ISPANAK: '🥬', İNCİR: '🟣', KABAK: '🥒', KAKİ: '🟠', KARPUZ: '🍉', KAVUN: '🍈',
+  GREYFUT: '🍊', GUAFA: '🟢', GULUMBRA: '🥬', HAVUÇ: '🥕', HURMA: '🟠',
+  ISPANAK: '🥬', İNCİR: '🟤', KABAK: '🥒', KAKİ: '🟠', KARPUZ: '🍉', KAVUN: '🍈',
   KAYISI: '🍑', KAYSI: '🍑', KEKİK: '🌿', KEREVİZ: '🥬', KOLOKAS: '🥔',
   LİMON: '🍋', LUANA: '🍈', MANDALİN: '🍊', MANDALİNA: '🍊', MANGO: '🥭',
   MARUL: '🥬', MAYDANOZ: '🌿', MERSİN: '🫐', MUZ: '🍌', NAR: '🔴', NEKTARİN: '🍑',
-  NERGİS: '🌼', PAMELO: '🍊', PANCAR: '🫜', PAPAYA: '🍈', PATATES: '🥔',
+  NERGİS: '🌼', PAMELO: '🍊', PANCAR: '🫜', PAPAYA: '🟠', PATATES: '🥔',
   PATLICAN: '🍆', PAZI: '🥬', PORTAKAL: '🍊', PRATSA: '🧅', ROKKA: '🥬',
   SALATALIK: '🥒', SARI: '🫘', SARMA: '🥬', SARMISAK: '🧄', SEMİZ: '🥬',
   SOĞAN: '🧅', ŞEFTALİ: '🍑', TAZE: '🌿', TERE: '🌿', TURP: '🥕', TUTKU: '🟣',
