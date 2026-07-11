@@ -11,8 +11,8 @@ async function main() {
   const adminHash = await bcrypt.hash(adminPassword, 10)
   await prisma.user.upsert({
     where: { username: 'admin' },
-    update: { passwordHash: adminHash, role: 'ADMIN', active: true },
-    create: { username: 'admin', name: 'Admin', passwordHash: adminHash, role: 'ADMIN', active: true },
+    update: { passwordHash: adminHash, roles: ['ADMIN'], active: true },
+    create: { username: 'admin', name: 'Admin', passwordHash: adminHash, roles: ['ADMIN'], active: true },
   })
   console.log('İlk admin kullanıcısı hazır (username: admin)')
 
@@ -53,26 +53,65 @@ async function main() {
   })
   console.log(`${drivers.count} şoför eklendi`)
 
+  // Gerçek ürün kataloğu — ana ürün gruplaması isimden türetilir (bkz. frontend/utils/productGroups.js)
+  const PRODUCT_NAMES = [
+    'ACUR', 'ALIÇ', 'ASMA YAPRAĞI', 'AVAKADO', 'AYŞE FASULYE', 'AYVA',
+    'BAKLA TAZE', 'BAMYA', 'BARBUNYA', 'BERGAMUT', 'BEZELYE',
+    'BİBER ACI KIRMIZI', 'BİBER ACI YEŞİL', 'BİBER ÇARLİ SARI', 'BİBER ÇARLİ SERA',
+    'BİBER DOL.SARI', 'BİBER DOL.YEŞİL', 'BİBER HATAY', 'BİBER KAPYA', 'BİBER MEKSİKA ACI',
+    'BROKOLİ', 'CEVİZ BİDON', 'ÇAĞLA BADEM PAKET', 'ÇİÇEK LAHANASI',
+    'ÇİLEK AÇIK', 'ÇİLEK PKT', 'DARI', 'DERE OTU',
+    'DOMATES BARDAK', 'DOMATES ÇERİ PKT', 'DOMATES ÇERİ YERLİ', 'DOMATES SERA',
+    'DRAGON AD.', 'DRAGON KG', 'DUT PAKET', 'ELMA YERLİ',
+    'ENGİNAR GÖBEK', 'ENGİNAR YAN',
+    'ERİK FORMOZA', 'ERİK KIRMIZI', 'ERİK YEŞİL', 'ERİK YEŞİL PKT',
+    'GINNAP', 'GOLYANDRO', 'GÖMEÇ', 'GREYFUT YERLİ', 'GUAFA', 'GULUMBRA',
+    'HAVUÇ', 'HURMA CENNET YERLİ', 'ISPANAK BAĞ', 'İNCİR A',
+    'KABAK', 'KABAK BAL', 'KABAK ET', 'KABAK KIRMIZI', 'KABAK MACUNLUK', 'KABAK TOPAK',
+    'KAKİ', 'KARPUZ YERLİ', 'KAVUN ANANAS', 'KAVUN KIŞ', 'KAYISI', 'KAYSI PAKET',
+    'KEKİK', 'KEREVİZ', 'KOLOKAS', 'LİMON YEDİVEREN', 'LUANA',
+    'MANDALİN KİNG', 'MANDALİN KLEMENTİN', 'MANDALİN ORİ', 'MANDALİN SAKSUMA',
+    'MANDALİN TURUNÇ', 'MANDALİN W MARCO', 'MANDALİN YERLİ', 'MANDALİNA NOVA',
+    'MANGO YERLİ', 'MARUL', 'MARUL KIVIRCIK', 'MARUL LOLOROSSO', 'MARUL LOLOROSSO KIRMIZI',
+    'MAYDANOZ', 'MERSİN PKT ADET', 'MUZ YERLİ', 'NAR TATLI', 'NEKTARİN YERLİ', 'NERGİS',
+    'PAMELO', 'PANCAR', 'PANCAR BAĞ', 'PAPAYA', 'PATATES', 'PATATES TAZE',
+    'PATLICAN KIRMIZI', 'PATLICAN SİYAH', 'PATLICAN TOPAK', 'PAZI',
+    'PORTAKAL KAN', 'PORTAKAL SIKMALIK', 'PORTAKAL ŞEKER', 'PORTAKAL VALENSİA',
+    'PORTAKAL WASHINTON', 'PORTAKAL YAFA', 'PRATSA', 'ROKKA', 'SALATALIK', 'SARI FASULYE',
+    'SARMA BEYAZ', 'SARMA EKMEK', 'SARMA MOR',
+    'SARMISAK BAŞ', 'SARMISAK İRİ', 'SARMISAK KİLO', 'SARMISAK TAZE', 'SEMİZ OTU',
+    'SOĞAN BAŞ', 'SOĞAN İRİ', 'SOĞAN KIRMIZI', 'SOĞAN KURU', 'SOĞAN MOR', 'SOĞAN TAZE',
+    'ŞEFTALİ YERLİ', 'TAZE BÖRÜLCE', 'TAZE FASULYE', 'TAZE NANE', 'TERE OTU',
+    'TURP', 'TURP KG', 'TUTKU MEYVE KG',
+    'ÜZÜM SİYAH', 'ÜZÜM BEYAZ', 'ÜZÜM PARMAK(TOMSON)', 'ÜZÜM SULTANİ', 'ÜZÜM VERİGO',
+    'YENİ DÜNYA KG.',
+  ]
+  // Türkçe başlık biçimi: her kelimenin ilk harfi büyük, gerisi küçük (İ/I doğru)
+  const titleCaseTr = (s) =>
+    s.toLocaleLowerCase('tr').replace(/(^|[\s(.\-/])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase('tr'))
+
+  // Ana ürün (groupName) — ilk kelimeden türetilir; sadece 2+ üyeli gruplara atanır.
+  // Sonradan admin panelden elle düzenlenebilir (ör. "Ayşe Fasulye" → "Fasulye").
+  const ALIASES = { MANDALİNA: 'MANDALİN', KAYSI: 'KAYISI' }
+  const STOPWORDS = new Set(['TAZE'])
+  const groupKey = (name) => {
+    const first = name.trim().replace(/\s+/g, ' ').split(' ')[0].toLocaleUpperCase('tr')
+    if (STOPWORDS.has(first)) return name.toLocaleUpperCase('tr') // tekil kalsın
+    return ALIASES[first] ?? first
+  }
+  const keyCount = {}
+  for (const n of PRODUCT_NAMES) keyCount[groupKey(n)] = (keyCount[groupKey(n)] ?? 0) + 1
+
   const products = await prisma.product.createMany({
-    data: [
-      { name: 'Domates' },
-      { name: 'Biber' },
-      { name: 'Salatalık' },
-      { name: 'Patlıcan' },
-      { name: 'Soğan' },
-      { name: 'Patates' },
-      { name: 'Havuç' },
-      { name: 'Maydanoz' },
-      { name: 'Marul' },
-      { name: 'Ispanak' },
-      { name: 'Elma' },
-      { name: 'Armut' },
-      { name: 'Portakal' },
-      { name: 'Mandalina' },
-      { name: 'Üzüm' },
-    ],
+    data: PRODUCT_NAMES.map((name) => {
+      const key = groupKey(name)
+      return {
+        name: titleCaseTr(name),
+        groupName: keyCount[key] >= 2 ? titleCaseTr(key) : null,
+      }
+    }),
   })
-  console.log(`${products.count} ürün eklendi`)
+  console.log(`${products.count} ürün eklendi (groupName otomatik atandı)`)
 
   const markets = await prisma.market.createMany({
     data: Array.from({ length: 20 }, (_, i) => ({

@@ -22,10 +22,14 @@ export async function login(req, res, next) {
       return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' })
     }
 
+    // Token ömrü: JWT_EXPIRES_IN ayarlıysa o süre, ayarlı DEĞİLSE süresiz (ömürlük — relogin gerekmez)
+    const signOpts = process.env.JWT_EXPIRES_IN
+      ? { expiresIn: process.env.JWT_EXPIRES_IN }
+      : {}
     const token = jwt.sign(
       { id: user.id, username: user.username, roles: user.roles, name: user.name },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN ?? '8h' }
+      signOpts
     )
     res.json({ token, user: { id: user.id, name: user.name, username: user.username, roles: user.roles } })
   } catch (err) {
@@ -41,7 +45,7 @@ export async function me(req, res) {
 const ALLOWED_FIELDS = {
   driver:   ['name'],
   producer: ['name', 'driverId', 'active'],
-  product:  ['name', 'icon'],
+  product:  ['name', 'icon', 'groupName'],
   quality:  ['name'],
   market:   ['no', 'name'],
   user:     ['name', 'username', 'roles', 'active'],

@@ -16,6 +16,8 @@ export function CrudPage({
   loading,
   fields,     // [{ name, label, type?, placeholder? }]
   columns,    // [{ label, render }]
+  groupBy,    // opsiyonel: kayıtları bu alana göre grupla (ör. 'groupName')
+  groupIcon,  // opsiyonel: (label) => emoji — grup başlığı ikonu
   onCreate,
   onUpdate,
   onDelete,
@@ -84,6 +86,33 @@ export function CrudPage({
     }
   }
 
+  // Gruplu görünüm — groupBy verilmişse: grup başlığı + altında alt ürünler
+  function buildRows() {
+    if (!groupBy) return records.map((r) => ({ kind: 'row', record: r }))
+    const groups = new Map()
+    const singles = []
+    for (const r of records) {
+      const g = String(r[groupBy] ?? '').trim()
+      if (g) { if (!groups.has(g)) groups.set(g, []); groups.get(g).push(r) }
+      else singles.push(r)
+    }
+    const entries = []
+    for (const [label, children] of groups) entries.push({ sortKey: label, kind: 'group', label, children })
+    for (const r of singles) entries.push({ sortKey: String(r.name ?? ''), kind: 'single', record: r })
+    entries.sort((a, b) => a.sortKey.localeCompare(b.sortKey, 'tr'))
+    const rows = []
+    for (const e of entries) {
+      if (e.kind === 'group') {
+        rows.push({ kind: 'header', label: e.label, count: e.children.length })
+        for (const r of e.children) rows.push({ kind: 'row', record: r, child: true })
+      } else {
+        rows.push({ kind: 'row', record: e.record })
+      }
+    }
+    return rows
+  }
+  const displayRows = buildRows()
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -130,41 +159,60 @@ export function CrudPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {records.map((record) => (
-                <tr key={record.id} className="hover:bg-gray-50 transition-colors">
-                  {columns.map((c, i) => (
-                    <td
-                      key={c.label}
-                      className={`p-2 sm:p-4 text-text-primary ${i > 0 ? 'hidden md:table-cell' : ''}`}
-                    >
-                      <div className="flex flex-col">
-                        <span>{c.render(record)}</span>
-                        {i === 0 && columns.length > 1 && (
-                          <span className="md:hidden text-[10px] text-text-muted mt-0.5">
-                            {columns.slice(1).map((sub) => sub.render(record)).filter(Boolean).join(' · ')}
+              {displayRows.map((row) => {
+                if (row.kind === 'header') {
+                  return (
+                    <tr key={`h-${row.label}`} className="bg-primary-light/50">
+                      <td colSpan={columns.length + 1} className="p-2 sm:p-3 font-semibold text-text-primary">
+                        <span className="flex items-center gap-2">
+                          {groupIcon && <span className="text-lg">{groupIcon(row.label)}</span>}
+                          {row.label}
+                          <span className="text-xs font-normal text-text-muted">({row.count} çeşit)</span>
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                }
+                const record = row.record
+                return (
+                  <tr key={record.id} className="hover:bg-gray-50 transition-colors">
+                    {columns.map((c, i) => (
+                      <td
+                        key={c.label}
+                        className={`p-2 sm:p-4 text-text-primary ${i > 0 ? 'hidden md:table-cell' : ''}`}
+                      >
+                        <div className={`flex flex-col ${i === 0 && row.child ? 'pl-5 sm:pl-8' : ''}`}>
+                          <span className="flex items-center gap-1.5">
+                            {i === 0 && row.child && <span className="text-text-muted select-none">└</span>}
+                            {c.render(record)}
                           </span>
-                        )}
+                          {i === 0 && columns.length > 1 && (
+                            <span className="md:hidden text-[10px] text-text-muted mt-0.5">
+                              {columns.slice(1).map((sub) => sub.render(record)).filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    ))}
+                    <td className="p-2 sm:p-4">
+                      <div className="flex justify-end gap-1 sm:gap-2">
+                        <button
+                          onClick={() => openEdit(record)}
+                          className="p-2 rounded-lg hover:bg-primary-light text-primary transition-colors"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(record)}
+                          className="p-2 rounded-lg hover:bg-red-50 text-error transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
-                  ))}
-                  <td className="p-2 sm:p-4">
-                    <div className="flex justify-end gap-1 sm:gap-2">
-                      <button
-                        onClick={() => openEdit(record)}
-                        className="p-2 rounded-lg hover:bg-primary-light text-primary transition-colors"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(record)}
-                        className="p-2 rounded-lg hover:bg-red-50 text-error transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -220,6 +268,25 @@ export function CrudPage({
                       </label>
                     ))}
                   </div>
+                  {f.help && <p className="text-xs text-text-muted">{f.help}</p>}
+                  {errors[f.name] && <p className="text-xs text-error">{errors[f.name]}</p>}
+                </div>
+              )
+            }
+            if (f.type === 'datalist') {
+              return (
+                <div key={f.name} className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-text-secondary">{f.label}</label>
+                  <input
+                    list={`dl-${f.name}`}
+                    value={form[f.name] ?? ''}
+                    onChange={(e) => setForm((prev) => ({ ...prev, [f.name]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    className="w-full px-4 py-3 rounded-xl border border-border bg-white text-text-primary text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                  />
+                  <datalist id={`dl-${f.name}`}>
+                    {(f.options ?? []).map((o) => <option key={o} value={o} />)}
+                  </datalist>
                   {f.help && <p className="text-xs text-text-muted">{f.help}</p>}
                   {errors[f.name] && <p className="text-xs text-error">{errors[f.name]}</p>}
                 </div>

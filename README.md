@@ -24,6 +24,7 @@
 - 🍅 **Ürün emoji ikonları** — Her ürüne admin panelinden emoji atanabilir (🍅 Domates, 🍎 Elma…)
 - 🔥 **Akıllı ürün sıralaması** — Mal kabul ekranındaki ürünler en çok girişi yapılana göre sıralanır (global)
 - 🔄 **Üretici aktif/pasif** — Admin panelinde tek tıkla toggle; pasif üreticiler operatör ekranında görünmez, backend de blok eder (cari kayıtlar korunur)
+- 🗂️ **Ana ürün gruplaması** — Ürünlere admin panelinden "Ana ürün" (`Product.groupName`) atanır; mal kabul ekranında ana ürün (Portakal) → tıkla → çeşitler (Kan, Şeker, Valensia…) açılır. Admin ürün listesi de gruplu gösterilir
 
 ---
 
@@ -239,7 +240,7 @@ Ana entity'ler:
 - **Driver** — Şoför (üreticilere ve araç oturumlarına bağlı)
 - **Producer** — Üretici (şoföre opsiyonel bağlı)
 - **VehicleSession** — Bir şoförün gün içi araç oturumu (`ACTIVE`/`COMPLETED`)
-- **Product / Quality** — Ürün ve kalite katalog
+- **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable)
 - **Market** — Pazar/bayi (`no` unique numara)
 - **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/kilo)
 - **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot)

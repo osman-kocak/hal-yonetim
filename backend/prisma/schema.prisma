@@ -73,12 +73,15 @@ model VehicleSession {
 }
 
 model Product {
-  id      Int     @id @default(autoincrement())
-  name    String  @unique
-  icon    String? // Emoji veya kısa metin (örn. 🍅, 🍎)
-  entries Entry[]
-  prices  Price[]
-  returns ReturnRecord[]
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
+  icon      String? // Emoji veya kısa metin (örn. 🍅, 🍎)
+  groupName String? // Ana ürün / grup adı (örn. "Portakal"). null → tekil/ana ürün. Giriş ekranı buna göre gruplar.
+  entries   Entry[]
+  prices    Price[]
+  returns   ReturnRecord[]
+
+  @@index([groupName])
 }
 
 model Quality {
