@@ -3,40 +3,41 @@ import { api } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { CrudPage } from './CrudPage'
 
-export function DriversPage() {
+export function RegionsPage() {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const addToast = useToastStore((s) => s.addToast)
 
-  const load = () => api.getAdminDrivers().then(setRecords).finally(() => setLoading(false))
+  const load = () => api.getAdminRegions().then(setRecords).finally(() => setLoading(false))
   useEffect(() => { load() }, [])
 
   async function onCreate(form) {
-    await api.createDriver(form)
-    addToast('Şoför eklendi ✓')
+    await api.createRegion(form)
+    addToast('Bölge eklendi ✓')
     load()
   }
 
   async function onUpdate(id, form) {
-    await api.updateDriver(id, form)
-    addToast('Şoför güncellendi ✓')
+    await api.updateRegion(id, form)
+    addToast('Bölge güncellendi ✓')
     load()
   }
 
   async function onDelete(id) {
-    await api.deleteDriver(id)
-    addToast('Şoför silindi')
+    await api.deleteRegion(id)
+    addToast('Bölge silindi')
     setRecords((p) => p.filter((r) => r.id !== id))
   }
 
   return (
     <CrudPage
-      title="Şoförler"
-      icon="🚚"
+      title="Bölgeler"
+      singular="Bölge"
+      icon="📍"
       records={records}
       loading={loading}
-      fields={[{ name: 'name', label: 'Ad Soyad', placeholder: 'Ahmet Yılmaz' }]}
-      columns={[{ label: 'Ad Soyad', render: (r) => r.name }]}
+      fields={[{ name: 'name', label: 'Bölge Adı', placeholder: 'Güzelyurt' }]}
+      columns={[{ label: 'Bölge Adı', render: (r) => r.name }]}
       onCreate={onCreate}
       onUpdate={onUpdate}
       onDelete={onDelete}

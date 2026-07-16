@@ -8,8 +8,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
 import {
-  TrendingUp, TrendingDown, Package, Scale, FileText, Truck,
-  Wallet, AlertTriangle, Users, Store, Calendar,
+  TrendingUp, TrendingDown, Package, Scale, FileText,
+  Wallet, AlertTriangle, Calendar,
 } from 'lucide-react'
 
 const PERIODS = [
@@ -32,22 +32,22 @@ export function DashboardPage() {
   const [period, setPeriod] = useState('week')
   const [trendDays, setTrendDays] = useState(14)
   const [data, setData] = useState({
-    overview: null, trend: [], byDriver: [], byMarket: [], byProduct: [], quality: null,
+    overview: null, trend: [], byRegion: [], byMarket: [], byProduct: [], quality: null,
   })
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [overview, trend, byDriver, byMarket, byProduct, quality] = await Promise.all([
+      const [overview, trend, byRegion, byMarket, byProduct, quality] = await Promise.all([
         api.getAnalyticsOverview({ period }),
         api.getAnalyticsTrend({ days: trendDays }),
-        api.getAnalyticsByDriver({ period, limit: 10 }),
+        api.getAnalyticsByRegion({ period, limit: 10 }),
         api.getAnalyticsByMarket({ period, limit: 10 }),
         api.getAnalyticsByProduct({ period, limit: 10 }),
         api.getAnalyticsQuality({ period }),
       ])
-      setData({ overview, trend, byDriver, byMarket, byProduct, quality })
+      setData({ overview, trend, byRegion, byMarket, byProduct, quality })
     } catch {
       // ignore
     } finally {
@@ -144,10 +144,10 @@ export function DashboardPage() {
 
           {/* Two-column charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-            <Card title="🚛 Top 10 Şoför (Kasa)" subtitle={periodLabel(period)}>
-              {data.byDriver.length === 0 ? <EmptyChart /> : (
+            <Card title="📍 Top 10 Bölge (Kasa)" subtitle={periodLabel(period)}>
+              {data.byRegion.length === 0 ? <EmptyChart /> : (
                 <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={data.byDriver.map((d) => ({ name: d.driver?.name ?? '—', cases: d.cases, weight: d.weight }))} layout="vertical" margin={{ left: 60 }}>
+                  <BarChart data={data.byRegion.map((d) => ({ name: d.region?.name ?? '—', cases: d.cases, weight: d.weight }))} layout="vertical" margin={{ left: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                     <XAxis type="number" stroke="#64748b" fontSize={12} />
                     <YAxis dataKey="name" type="category" stroke="#64748b" fontSize={12} width={100} />

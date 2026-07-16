@@ -141,30 +141,31 @@ export async function trend(req, res, next) {
   } catch (err) { next(err) }
 }
 
-// Top şoför: en çok kasa getiren
-export async function byDriver(req, res, next) {
+// Top bölge: en çok kasa getiren
+export async function byRegion(req, res, next) {
   try {
     const { start, end } = rangeFromQuery(req.query)
     const limit = Math.min(Math.max(Number(req.query.limit ?? 10), 1), 50)
 
-    // Entry.vehicleSession.driverId üzerinden gruplama
+    // Entry.regionSession.regionId üzerinden gruplama.
+    // INNER JOIN bilinçli: oturumsuz entry'ler (iade kayıtları) sayılmaz.
     const rows = await prisma.$queryRaw`
       SELECT
-        d."id" AS "driverId",
-        d."name" AS "driverName",
+        r."id" AS "regionId",
+        r."name" AS "regionName",
         COALESCE(SUM(e."caseCount"), 0)::int AS cases,
         COALESCE(SUM(e."weight"), 0)::float AS weight,
         COUNT(e."id")::int AS entries
       FROM "Entry" e
-      JOIN "VehicleSession" vs ON vs."id" = e."vehicleSessionId"
-      JOIN "Driver" d ON d."id" = vs."driverId"
+      JOIN "RegionSession" rs ON rs."id" = e."regionSessionId"
+      JOIN "Region" r ON r."id" = rs."regionId"
       WHERE e."createdAt" >= ${start} AND e."createdAt" <= ${end}
-      GROUP BY d."id", d."name"
+      GROUP BY r."id", r."name"
       ORDER BY cases DESC
       LIMIT ${limit}
     `
     res.json(rows.map((r) => ({
-      driver: { id: Number(r.driverId), name: r.driverName },
+      region: { id: Number(r.regionId), name: r.regionName },
       cases: Number(r.cases),
       weight: Math.round(Number(r.weight) * 100) / 100,
       entries: Number(r.entries),

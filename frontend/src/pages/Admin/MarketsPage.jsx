@@ -32,6 +32,7 @@ export function MarketsPage() {
   return (
     <CrudPage
       title="Pazarlar"
+      singular="Pazar"
       icon="🏪"
       records={records}
       loading={loading}
@@ -40,7 +41,7 @@ export function MarketsPage() {
         { name: 'name', label: 'Pazar Adı', placeholder: 'Pazar 1' },
       ]}
       columns={[
-        { label: 'No', render: (r) => <span className="font-bold text-primary">#{r.no}</span> },
+        { label: 'No', render: (r) => <span className="font-bold text-primary">#{r.no}</span>, exportValue: (r) => r.no },
         { label: 'Ad', render: (r) => r.name },
       ]}
       onCreate={onCreate}

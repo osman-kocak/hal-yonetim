@@ -57,6 +57,7 @@ export function UsersPage() {
   return (
     <CrudPage
       title="Kullanıcılar"
+      singular="Kullanıcı"
       icon="👤"
       records={records}
       loading={loading}
@@ -105,12 +106,17 @@ export function UsersPage() {
               </div>
             )
           },
+          exportValue: (r) => {
+            const roles = Array.isArray(r.roles) ? r.roles : (r.role ? [r.role] : [])
+            return roles.map((rl) => ROLE_BADGE[rl]?.label ?? rl).join(', ')
+          },
         },
         {
           label: 'Durum',
           render: (r) => r.active
             ? <Badge variant="success">Aktif</Badge>
             : <Badge variant="default">Pasif</Badge>,
+          exportValue: (r) => (r.active ? 'Aktif' : 'Pasif'),
         },
       ]}
       onCreate={onCreate}

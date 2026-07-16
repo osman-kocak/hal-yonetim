@@ -4,7 +4,7 @@ import { ExitPage } from '@/pages/Exit/ExitPage'
 import { MarketExitDetail } from '@/pages/Exit/MarketExitDetail'
 import { AdminLayout } from '@/pages/Admin/AdminLayout'
 import { DashboardPage } from '@/pages/Admin/DashboardPage'
-import { DriversPage } from '@/pages/Admin/DriversPage'
+import { RegionsPage } from '@/pages/Admin/RegionsPage'
 import { ProducersPage } from '@/pages/Admin/ProducersPage'
 import { ProductsPage } from '@/pages/Admin/ProductsPage'
 import { MarketsPage } from '@/pages/Admin/MarketsPage'
@@ -90,7 +90,7 @@ const router = createBrowserRouter([
       { path: 'transferler', element: <TransfersPage /> },
       { path: 'iadeler', element: <ReturnsPage /> },
       { path: 'kullanicilar', element: <UsersPage /> },
-      { path: 'soforler', element: <DriversPage /> },
+      { path: 'bolgeler', element: <RegionsPage /> },
       { path: 'ureticiler', element: <ProducersPage /> },
       { path: 'urunler', element: <ProductsPage /> },
       { path: 'pazarlar', element: <MarketsPage /> },

@@ -2,18 +2,18 @@
 
 > Sebze-meyve hali için **full-stack** stok, satış, cari hesap ve kasa takip sistemi.
 
-Şoför bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kesimi, fiyat takibi, cari hesap (bayi/üretici) ve boş kasa hareketlerine kadar tüm operasyonu tek panelde birleştiren çok rollü bir web uygulaması.
+Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kesimi, fiyat takibi, cari hesap (bayi/üretici) ve boş kasa hareketlerine kadar tüm operasyonu tek panelde birleştiren çok rollü bir web uygulaması.
 
 ---
 
 ## 🚀 Özellikler
 
-- 🚚 **Mal kabul akışı** — Şoför → Üretici → Ürün → Kalite → Kasa/Kilo girişi (adım adım onboarding)
+- 📍 **Mal kabul akışı** — Bölge → Üretici → Ürün → Kasa/Kilo girişi (adım adım onboarding)
 - 📦 **Depo yönetimi** — Ürün bazlı toplu transfer (FIFO mantığı + parçalı kasa ayırma/split)
 - 📋 **Çıkış & İrsaliye** — PDF üretimi, fiyat snapshot (irsaliye sonradan fiyat değişse de sabit kalır)
 - 🔄 **İade kabul** — Depoya geri al **veya** "atılan" olarak işaretle (atomic: Entry + Ledger + CaseMovement)
 - 💰 **Çoklu rol kullanıcı sistemi** — `ADMIN`, `DEPO`, `OPERATOR`, `ACCOUNTING`, `CASE_MANAGER`
-- 🧺 **Boş kasa takibi** — Otomatik `DRIVER_IN`/`MARKET_OUT` + manuel düzeltme hareketleri
+- 🧺 **Boş kasa takibi** — Otomatik `MARKET_OUT` (irsaliye ile) + manuel bayi düzeltme hareketleri
 - 📊 **Cari hesap** — Bayi alacak (irsaliye), üretici borç (manuel + ödeme)
 - 📈 **Raporlar** — Günlük, pazar bazlı, ürün bazlı, top products
 - 📥 **PDF + XLSX export** — Tüm liste sayfalarında (jsPDF + SheetJS, lazy-loaded)
@@ -95,7 +95,8 @@ cd backend
 npm install
 cp .env.example .env       # DATABASE_URL, JWT_SECRET düzenle
 npm run db:push            # Prisma schema → DB
-npm run db:seed            # Test verisi (şoför, ürün, pazar, ilk admin)
+npm run db:seed            # Katalog verisi (ürün, pazar, kalite, ilk admin) + bölge/üretici import
+npm run db:import-producers -- --dry-run   # Sadece bölge+üretici (idempotent, prod'da güvenli)
 npm run dev                # http://localhost:3001
 ```
 
@@ -141,10 +142,11 @@ ADMIN_INITIAL_PASSWORD="admin123"
 
 ### Mal Kabul Akışı
 ```
-DriverSelect → ProducerSelect → ProductSelect → QualitySelect → EntryForm
-                                                                    │
-                                                                    ▼
-                                  Entry kaydı + (otomatik) CaseMovement.DRIVER_IN
+RegionSelect → ProducerSelect → ProductSelect → EntryForm
+                                                     │
+                                                     ▼
+                                                Entry kaydı
+                                        (kasa hareketi üretilmez)
 ```
 
 ### İrsaliye / Çıkış Akışı
@@ -192,14 +194,14 @@ Transfer kaydı + ilgili Entry'lerin marketId güncellenir
 | Prefix | Sorumluluk |
 |--------|------------|
 | `/api/auth/*` | Login + token refresh |
-| `/api/entry/*` | Mal kabul (Entry CRUD + driver session) |
+| `/api/entry/*` | Mal kabul (Entry CRUD) |
 | `/api/exit/*` | İrsaliye listesi + oluşturma + PDF data |
 | `/api/depo/*` | Pazar arası transfer (FIFO + split) |
-| `/api/cases/*` | CaseMovement CRUD (bayi + şoför) |
-| `/api/vehicle/*` | VehicleSession (aktif/tamamlanan) |
+| `/api/cases/*` | CaseMovement CRUD (bayi) |
+| `/api/region/*` | RegionSession (aktif/tamamlanan) |
 | `/api/markets/*` | Pazar listesi (public dahil) |
-| `/api/admin/*` | Driver/Producer/Product/Quality/User CRUD + raporlar + finans + iade |
-| `/api/public/*` | Auth gerektirmeyen listeler (şoför, ürün) |
+| `/api/admin/*` | Region/Producer/Product/Quality/User CRUD + raporlar + finans + iade |
+| `/api/public/*` | Ortak listeler (bölge, üretici, ürün) |
 
 > Tüm yazma uçları `requireAuth` + rol middleware. Detay için `backend/src/routes/`.
 
@@ -224,8 +226,8 @@ Transfer kaydı + ilgili Entry'lerin marketId güncellenir
 | `/admin/transferler` | ADMIN, ACC. | Transfer geçmişi |
 | `/admin/iadeler` | ADMIN, ACC. | İade kayıtları |
 | `/admin/kullanicilar` | ADMIN | Kullanıcı CRUD + rol atama |
-| `/admin/soforler` | ADMIN, ACC. | Şoför CRUD |
-| `/admin/ureticiler` | ADMIN, ACC. | Üretici CRUD (şoföre bağlı) |
+| `/admin/bolgeler` | ADMIN, ACC. | Bölge CRUD |
+| `/admin/ureticiler` | ADMIN, ACC. | Üretici CRUD (bölgeye bağlı) |
 | `/admin/urunler` | ADMIN, ACC. | Ürün CRUD |
 | `/admin/pazarlar` | ADMIN, ACC. | Pazar/Bayi CRUD |
 | `/admin/kaliteler` | ADMIN, ACC. | Kalite CRUD |
@@ -237,9 +239,9 @@ Transfer kaydı + ilgili Entry'lerin marketId güncellenir
 
 Ana entity'ler:
 
-- **Driver** — Şoför (üreticilere ve araç oturumlarına bağlı)
-- **Producer** — Üretici (şoföre opsiyonel bağlı)
-- **VehicleSession** — Bir şoförün gün içi araç oturumu (`ACTIVE`/`COMPLETED`)
+- **Region** — Bölge (üreticilere ve bölge oturumlarına bağlı)
+- **Producer** — Üretici (bölgeye opsiyonel bağlı; `allRegions=true` ise her bölgenin listesinde görünür)
+- **RegionSession** — Bir bölgenin gün içi mal kabul oturumu (`ACTIVE`/`COMPLETED`)
 - **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable)
 - **Market** — Pazar/bayi (`no` unique numara)
 - **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/kilo)
@@ -247,7 +249,7 @@ Ana entity'ler:
 - **Transfer** — Pazardan pazara taşıma geçmişi
 - **Price** — Günlük (product, quality, date) fiyatları — `@@unique`
 - **LedgerEntry** — Bayi/üretici cari hesap kaydı (`MARKET_INVOICE`, `PAYMENT`, `ADJUSTMENT`, …)
-- **CaseMovement** — Boş kasa hareketi (`MARKET_OUT/IN/INIT/ADJUST`, `DRIVER_OUT/IN/INIT/ADJUST`)
+- **CaseMovement** — Boş kasa hareketi (`MARKET_OUT/IN/INIT/ADJUST`) — bayi tarafı
 - **ReturnRecord** — Bayiden iade (atomic Entry + Ledger + CaseMovement bağlar)
 - **User** — Sistem kullanıcısı + `roles: UserRole[]`
 
@@ -285,11 +287,11 @@ cp scripts/deploy.env.example scripts/deploy.env
 ## 🧪 Manuel Test Checklist
 
 ### Mal Kabul
-- [ ] Şoför seç → araç oturumu açılır
+- [ ] Bölge seç → bölge oturumu açılır
 - [ ] Üretici → Ürün → Kalite → Form akışı kesintisiz
 - [ ] Geçersiz kasa/kilo → Türkçe hata mesajı
-- [ ] "Araç Tamamlandı" → onay → şoför listesine dön
-- [ ] Otomatik `CaseMovement.DRIVER_IN` oluşur
+- [ ] "Bölge Bitti" → özet (giriş/kasa/kilo) → onay → bölge listesine dön
+- [ ] Mal kabul `CaseMovement` ÜRETMEZ (kasa defteri sadece bayi tarafını izler)
 
 ### Çıkış / İrsaliye
 - [ ] Pazarlar bekleyen entry sayısıyla listelenir
@@ -301,7 +303,7 @@ cp scripts/deploy.env.example scripts/deploy.env
 ### Admin
 - [ ] Yanlış şifre → "Şifre hatalı"
 - [ ] Sayfa yenilemede oturum korunur
-- [ ] CRUD sayfaları (driver/producer/product/market/quality) ekleme/silme/güncelleme
+- [ ] CRUD sayfaları (region/producer/product/market/quality) ekleme/silme/güncelleme
 - [ ] Raporlar tarih filtresiyle çalışır
 - [ ] PDF + XLSX export çalışır
 
@@ -317,7 +319,7 @@ hal-yonetim/
 │   │   ├── seed.js                # Test verisi + ilk admin
 │   │   └── migrations/
 │   ├── src/
-│   │   ├── routes/                # admin, depo, cases, entry, exit, vehicle, market, public, index
+│   │   ├── routes/                # admin, depo, cases, entry, exit, region, market, public, index
 │   │   ├── controllers/
 │   │   ├── middleware/            # requireAuth, requireRole
 │   │   ├── utils/

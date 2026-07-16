@@ -8,7 +8,8 @@
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
     "db:studio": "prisma studio",
-    "db:reset": "prisma db push --force-reset && node prisma/seed.js"
+    "db:reset": "prisma db push --force-reset && node prisma/seed.js",
+    "db:import-producers": "node scripts/import-producers.js"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",

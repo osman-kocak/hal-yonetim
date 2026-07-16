@@ -1,19 +1,28 @@
 ### Sağlık Kontrolü
 GET http://localhost:3001/health
 
-### ======== ARAÇ ========
+### ======== BÖLGE ========
 
-### Araç girişi başlat (driverId seed'den gelir, 1-5 arası)
-POST http://localhost:3001/api/vehicle/start
+### Bölge oturumu başlat (regionId — GET /api/regions'tan gelir)
+### Aynı bölge için tekrar çağrılırsa açık oturumu döndürür (resume)
+POST http://localhost:3001/api/region/start
 Content-Type: application/json
 
-{ "driverId": 1 }
+{ "regionId": 1 }
 
-### Araç tamamlandı
-POST http://localhost:3001/api/vehicle/complete
+### Bölge tamamlandı
+POST http://localhost:3001/api/region/complete
 Content-Type: application/json
 
-{ "vehicleSessionId": 1 }
+{ "regionSessionId": 1 }
+
+### Bölgeleri listele (hasActiveSession ile)
+GET http://localhost:3001/api/regions
+Authorization: Bearer <TOKEN>
+
+### Bir bölgenin üreticileri (o bölgeye atanmışlar + allRegions olanlar)
+GET http://localhost:3001/api/regions/1/producers
+Authorization: Bearer <TOKEN>
 
 ### ======== GİRİŞ ========
 
@@ -22,7 +31,7 @@ POST http://localhost:3001/api/entry
 Content-Type: application/json
 
 {
-  "vehicleSessionId": 1,
+  "regionSessionId": 1,
   "productId": 1,
   "qualityId": 1,
   "caseCount": 10,
@@ -56,26 +65,26 @@ Content-Type: application/json
 
 ### ======== ADMIN CRUD (token gerekli) ========
 
-### Şoförleri listele
-GET http://localhost:3001/api/admin/drivers
+### Bölgeleri listele
+GET http://localhost:3001/api/admin/regions
 Authorization: Bearer <TOKEN>
 
-### Şoför ekle
-POST http://localhost:3001/api/admin/drivers
-Authorization: Bearer <TOKEN>
-Content-Type: application/json
-
-{ "name": "Yeni Şoför" }
-
-### Şoför güncelle
-PUT http://localhost:3001/api/admin/drivers/1
+### Bölge ekle
+POST http://localhost:3001/api/admin/regions
 Authorization: Bearer <TOKEN>
 Content-Type: application/json
 
-{ "name": "Ahmet Yılmaz (Güncellendi)" }
+{ "name": "Yeni Bölge" }
 
-### Şoför sil
-DELETE http://localhost:3001/api/admin/drivers/6
+### Bölge güncelle
+PUT http://localhost:3001/api/admin/regions/1
+Authorization: Bearer <TOKEN>
+Content-Type: application/json
+
+{ "name": "Güzelyurt (Güncellendi)" }
+
+### Bölge sil
+DELETE http://localhost:3001/api/admin/regions/9
 Authorization: Bearer <TOKEN>
 
 ### Ürünleri listele

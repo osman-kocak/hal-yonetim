@@ -41,7 +41,7 @@ export async function getMarketEntries(req, res, next) {
         product: true,
         quality: true,
         market: true,
-        vehicleSession: { include: { driver: true } },
+        regionSession: { include: { region: true } },
       },
       orderBy: { createdAt: 'desc' },
     })

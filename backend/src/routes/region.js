@@ -1,10 +1,10 @@
 import { Router } from 'express'
-import { startVehicle, completeVehicle, listSessionEntries } from '../controllers/vehicleController.js'
+import { startRegion, completeRegion, listSessionEntries } from '../controllers/regionController.js'
 import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
 router.use(requireAuth)
-router.post('/start', startVehicle)
-router.post('/complete', completeVehicle)
+router.post('/start', startRegion)
+router.post('/complete', completeRegion)
 router.get('/:id/entries', listSessionEntries)
 export default router

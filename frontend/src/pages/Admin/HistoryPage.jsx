@@ -27,14 +27,14 @@ export function HistoryPage() {
   const [editingExit, setEditingExit] = useState(null)
   // Filtreler
   const [filterMarket, setFilterMarket] = useState('')
-  const [filterDriver, setFilterDriver] = useState('')
+  const [filterRegion, setFilterRegion] = useState('')
   const [markets, setMarkets] = useState([])
-  const [drivers, setDrivers] = useState([])
+  const [regions, setRegions] = useState([])
   const addToast = useToastStore((s) => s.addToast)
 
   useEffect(() => {
     api.getMarkets().then(setMarkets).catch(() => {})
-    api.getAdminDrivers().then(setDrivers).catch(() => {})
+    api.getAdminRegions().then(setRegions).catch(() => {})
   }, [])
 
   const fetchData = useCallback(() => {
@@ -42,7 +42,7 @@ export function HistoryPage() {
     setData([])
     const params = { date, page, limit: PAGE_SIZE }
     if (tab === 0 && filterMarket) params.marketId = filterMarket
-    if (tab === 1 && filterDriver) params.driverId = filterDriver
+    if (tab === 1 && filterRegion) params.regionId = filterRegion
     const fn = tab === 0 ? api.getExitHistory : api.getEntryHistory
     fn(params)
       .then((res) => {
@@ -55,10 +55,10 @@ export function HistoryPage() {
       })
       .catch(() => addToast('Veriler yüklenemedi', 'error'))
       .finally(() => setLoading(false))
-  }, [tab, date, filterMarket, filterDriver, page])
+  }, [tab, date, filterMarket, filterRegion, page])
 
   // Filter değişince sayfayı 1'e dön
-  useEffect(() => { setPage(1) }, [tab, date, filterMarket, filterDriver])
+  useEffect(() => { setPage(1) }, [tab, date, filterMarket, filterRegion])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -100,12 +100,12 @@ export function HistoryPage() {
               }
             } else {
               return {
-                columns: ['Tarih', 'Ürün', 'Kalite', 'Şoför', 'Üretici', 'Kasa', 'Ağırlık (kg)', 'Pazar', 'Zayıf'],
+                columns: ['Tarih', 'Ürün', 'Kalite', 'Bölge', 'Üretici', 'Kasa', 'Ağırlık (kg)', 'Pazar', 'Zayıf'],
                 rows: data.map((e) => [
                   formatDate(e.createdAt),
                   e.product?.name ?? '—',
                   e.quality?.name ?? '',
-                  e.vehicleSession?.driver?.name ?? '—',
+                  e.region?.name ?? '—',
                   e.producer?.name ?? '—',
                   e.caseCount,
                   e.weight ? Number(e.weight).toFixed(2) : '',
@@ -125,7 +125,7 @@ export function HistoryPage() {
           {TABS.map((t, i) => (
             <button
               key={t}
-              onClick={() => { setTab(i); setFilterMarket(''); setFilterDriver('') }}
+              onClick={() => { setTab(i); setFilterMarket(''); setFilterRegion('') }}
               className={cn(
                 'px-4 py-2 rounded-lg text-sm font-medium transition-all',
                 tab === i ? 'bg-white text-text-primary shadow-card' : 'text-text-muted hover:text-text-primary'
@@ -159,12 +159,12 @@ export function HistoryPage() {
         )}
         {tab === 1 && (
           <select
-            value={filterDriver}
-            onChange={(e) => setFilterDriver(e.target.value)}
+            value={filterRegion}
+            onChange={(e) => setFilterRegion(e.target.value)}
             className="px-4 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary bg-white"
           >
-            <option value="">Tüm Şoförler</option>
-            {drivers.map((d) => (
+            <option value="">Tüm Bölgeler</option>
+            {regions.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
@@ -262,7 +262,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit }) {
             <div className="border-t border-border">
               <div className="px-4 py-2 bg-gray-50 text-xs text-text-muted flex items-center justify-between gap-4">
                 <div className="flex gap-4 flex-wrap">
-                  <span>Şoförler: {ex.drivers?.join(', ')}</span>
+                  <span>Bölgeler: {ex.regions?.join(', ')}</span>
                   {ex.editedAt && (
                     <span className="text-amber-600">
                       Düzenleyen: <strong>{ex.editedBy}</strong> — {formatDate(ex.editedAt)}
@@ -290,7 +290,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit }) {
                     <tr>
                       <th className="px-2 sm:px-4 py-2 text-left font-semibold text-text-secondary">Ürün</th>
                       <th className="px-4 py-2 text-left font-semibold text-text-secondary hidden md:table-cell">Kalite</th>
-                      <th className="px-4 py-2 text-left font-semibold text-text-secondary hidden lg:table-cell">Şoför</th>
+                      <th className="px-4 py-2 text-left font-semibold text-text-secondary hidden lg:table-cell">Bölge</th>
                       <th className="px-2 sm:px-4 py-2 text-right font-semibold text-text-secondary">Kasa</th>
                       <th className="px-4 py-2 text-right font-semibold text-text-secondary hidden sm:table-cell">Ağırlık</th>
                       <th className="px-4 py-2 text-right font-semibold text-text-secondary hidden md:table-cell">₺/kg</th>
@@ -303,7 +303,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit }) {
                         <td className="px-2 sm:px-4 py-2">
                           <div className="flex flex-col">
                             <span>{item.entry?.product?.name ?? '—'}</span>
-                            <span className="lg:hidden text-[10px] text-text-muted">{item.entry?.vehicleSession?.driver?.name ?? '—'}</span>
+                            <span className="lg:hidden text-[10px] text-text-muted">{item.entry?.regionSession?.region?.name ?? '—'}</span>
                           </div>
                         </td>
                         <td className="px-4 py-2 hidden md:table-cell">
@@ -311,7 +311,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit }) {
                             {item.entry?.quality?.name ?? '?'}
                           </Badge>
                         </td>
-                        <td className="px-4 py-2 text-text-secondary hidden lg:table-cell">{item.entry?.vehicleSession?.driver?.name ?? '—'}</td>
+                        <td className="px-4 py-2 text-text-secondary hidden lg:table-cell">{item.entry?.regionSession?.region?.name ?? '—'}</td>
                         <td className="px-2 sm:px-4 py-2 text-right tabular-nums">{item.entry?.caseCount}</td>
                         <td className="px-4 py-2 text-right tabular-nums hidden sm:table-cell">{formatWeight(item.entry?.weight)}</td>
                         <td className="px-4 py-2 text-right tabular-nums hidden md:table-cell">{item.pricePerKg != null ? `₺${Number(item.pricePerKg).toFixed(2)}` : '—'}</td>
@@ -547,7 +547,7 @@ function EntryHistoryTable({ data }) {
       <table className="w-full text-sm">
         <thead className="bg-gray-50 border-b border-border">
           <tr>
-            <th className="p-4 text-left font-semibold text-text-secondary">Şoför</th>
+            <th className="p-4 text-left font-semibold text-text-secondary">Bölge</th>
             <th className="p-4 text-left font-semibold text-text-secondary">Üretici</th>
             <th className="p-4 text-left font-semibold text-text-secondary">Ürün</th>
             <th className="p-4 text-left font-semibold text-text-secondary">Mal Durumu</th>
@@ -561,7 +561,7 @@ function EntryHistoryTable({ data }) {
         <tbody className="divide-y divide-border">
           {data.map((e) => (
             <tr key={e.id} className={cn('hover:bg-gray-50 transition-colors', e.weak && 'bg-error/5')}>
-              <td className="p-4 font-medium text-text-primary">{e.driver?.name ?? '—'}</td>
+              <td className="p-4 font-medium text-text-primary">{e.region?.name ?? '—'}</td>
               <td className="p-4 text-text-secondary">{e.producer?.name ?? '—'}</td>
               <td className="p-4 text-text-primary">{e.product?.name ?? '—'}</td>
               <td className="p-4">

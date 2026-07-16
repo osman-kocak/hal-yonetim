@@ -10,13 +10,8 @@ import { Input } from '@/components/ui/Input'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { formatDate, today } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
-import { Plus, Trash2, Store, User, Boxes, FileText } from 'lucide-react'
+import { Plus, Trash2, Boxes, FileText } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
-
-const TABS = [
-  { key: 'market', label: 'Bayi Kasaları', icon: Store },
-  { key: 'driver', label: 'Şoför Kasaları', icon: User },
-]
 
 // Hareket tipi → görsel meta
 const TYPE_META = {
@@ -24,14 +19,9 @@ const TYPE_META = {
   MARKET_IN:     { label: 'Bayiden İade',      variant: 'success', sign: '−' },
   MARKET_INIT:   { label: 'Başlangıç Bakiye',  variant: 'default', sign: '+' },
   MARKET_ADJUST: { label: 'Düzeltme',          variant: 'primary', sign: '±' },
-  DRIVER_OUT:    { label: 'Şoföre Avans',      variant: 'warning', sign: '+' },
-  DRIVER_IN:     { label: 'Şoförden İade',     variant: 'success', sign: '−' },
-  DRIVER_INIT:   { label: 'Başlangıç Bakiye',  variant: 'default', sign: '+' },
-  DRIVER_ADJUST: { label: 'Düzeltme',          variant: 'primary', sign: '±' },
 }
 
 const MARKET_MANUAL_TYPES = ['MARKET_IN', 'MARKET_INIT', 'MARKET_ADJUST']
-const DRIVER_MANUAL_TYPES = ['DRIVER_OUT', 'DRIVER_IN', 'DRIVER_INIT', 'DRIVER_ADJUST']
 
 function balanceClasses(balance) {
   if (balance > 0) return 'bg-amber-50 border-amber-200 text-amber-900'
@@ -40,9 +30,6 @@ function balanceClasses(balance) {
 }
 
 export function CaseTrackingPage() {
-  const [tabIdx, setTabIdx] = useState(0)
-  const tab = TABS[tabIdx].key
-
   const [balances, setBalances] = useState([])
   const [movements, setMovements] = useState([])
   const [loading, setLoading] = useState(false)
@@ -60,24 +47,20 @@ export function CaseTrackingPage() {
   const addToast = useToastStore((s) => s.addToast)
 
   const fetchBalances = useCallback(() => {
-    const fn = tab === 'market' ? api.getMarketCaseBalances : api.getDriverCaseBalances
-    fn().then(setBalances).catch(() => addToast('Bakiyeler yüklenemedi', 'error'))
-  }, [tab])
+    api.getMarketCaseBalances().then(setBalances).catch(() => addToast('Bakiyeler yüklenemedi', 'error'))
+  }, [])
 
   const fetchMovements = useCallback(() => {
     setLoading(true)
-    const params = { scope: tab }
+    const params = { scope: 'market' }
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
-    if (filterId) {
-      if (tab === 'market') params.marketId = filterId
-      else params.driverId = filterId
-    }
+    if (filterId) params.marketId = filterId
     api.getCaseMovements(params)
       .then(setMovements)
       .catch(() => addToast('Hareketler yüklenemedi', 'error'))
       .finally(() => setLoading(false))
-  }, [tab, dateFrom, dateTo, filterId])
+  }, [dateFrom, dateTo, filterId])
 
   useEffect(() => { fetchBalances() }, [fetchBalances])
   useEffect(() => { fetchMovements() }, [fetchMovements])
@@ -114,14 +97,14 @@ export function CaseTrackingPage() {
         </h1>
         <div className="flex items-center gap-2">
           <ExportButton
-            title={`Kasa Hareketleri - ${tab === 'market' ? 'Bayi' : 'Şoför'}`}
-            filename={`kasa-${tab}-${new Date().toISOString().slice(0, 10)}`}
+            title="Kasa Hareketleri - Bayi"
+            filename={`kasa-bayi-${new Date().toISOString().slice(0, 10)}`}
             prepare={() => ({
-              columns: ['Tarih', 'Tip', tab === 'market' ? 'Bayi' : 'Şoför', 'Adet', 'Not', 'Yapan'],
+              columns: ['Tarih', 'Tip', 'Bayi', 'Adet', 'Not', 'Yapan'],
               rows: movements.map((m) => [
                 formatDate(m.occurredAt),
                 TYPE_META[m.type]?.label ?? m.type,
-                tab === 'market' ? (m.market ? `#${m.market.no} ${m.market.name}` : '—') : (m.driver?.name ?? '—'),
+                m.market ? `#${m.market.no} ${m.market.name}` : '—',
                 `${TYPE_META[m.type]?.sign === '±' ? (m.qty > 0 ? '+' : '') : (TYPE_META[m.type]?.sign ?? '')}${m.qty}`,
                 m.note ?? '',
                 m.createdBy ?? '',
@@ -135,26 +118,6 @@ export function CaseTrackingPage() {
         </div>
       </div>
 
-      {/* Tab */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit mb-6">
-        {TABS.map((t, i) => {
-          const Icon = t.icon
-          return (
-            <button
-              key={t.key}
-              onClick={() => { setTabIdx(i); setFilterId('') }}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all',
-                tabIdx === i ? 'bg-white text-text-primary shadow-card' : 'text-text-muted hover:text-text-primary'
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
       {/* Özet kart */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <div className="bg-white border border-border rounded-2xl p-4 shadow-card">
@@ -162,9 +125,7 @@ export function CaseTrackingPage() {
           <p className="text-2xl font-bold text-text-primary mt-1">{totalBalance}</p>
         </div>
         <div className="bg-white border border-border rounded-2xl p-4 shadow-card">
-          <p className="text-xs text-text-muted uppercase tracking-wide">
-            {tab === 'market' ? 'Kasa Olan Bayi' : 'Kasa Olan Şoför'}
-          </p>
+          <p className="text-xs text-text-muted uppercase tracking-wide">Kasa Olan Bayi</p>
           <p className="text-2xl font-bold text-text-primary mt-1">
             {outsideCount} / {balances.length}
           </p>
@@ -178,7 +139,7 @@ export function CaseTrackingPage() {
       {/* Bakiye kartları */}
       <div className="mb-8">
         <h2 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wide">
-          {tab === 'market' ? 'Bayi Bakiyeleri' : 'Şoför Bakiyeleri'}
+          Bayi Bakiyeleri
         </h2>
         {balances.length === 0 ? (
           <p className="text-sm text-text-muted">Kayıt yok</p>
@@ -194,9 +155,7 @@ export function CaseTrackingPage() {
                   String(filterId) === String(b.id) && 'ring-2 ring-primary ring-offset-1'
                 )}
               >
-                <p className="text-xs font-medium truncate">
-                  {tab === 'market' ? `#${b.no} ${b.name}` : b.name}
-                </p>
+                <p className="text-xs font-medium truncate">#{b.no} {b.name}</p>
                 <p className="text-xl font-bold mt-1">{b.balance ?? 0}</p>
                 <p className="text-[10px] opacity-70 mt-0.5">kasa</p>
               </button>
@@ -256,7 +215,7 @@ export function CaseTrackingPage() {
                 <tr>
                   <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary hidden md:table-cell">Tarih</th>
                   <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Tip</th>
-                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">{tab === 'market' ? 'Bayi' : 'Şoför'}</th>
+                  <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Bayi</th>
                   <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Adet</th>
                   <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Not</th>
                   <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Giren</th>
@@ -281,9 +240,7 @@ export function CaseTrackingPage() {
                         <div className="md:hidden text-[10px] text-text-muted mt-1">{formatDate(m.occurredAt)}</div>
                       </td>
                       <td className="p-2 sm:p-3 text-text-primary">
-                        {tab === 'market'
-                          ? (m.market ? `#${m.market.no} ${m.market.name}` : '—')
-                          : (m.driver?.name ?? '—')}
+                        {m.market ? `#${m.market.no} ${m.market.name}` : '—'}
                       </td>
                       <td className="p-2 sm:p-3 text-right font-semibold tabular-nums">
                         <span className={cn(
@@ -317,10 +274,8 @@ export function CaseTrackingPage() {
       <MovementModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        scope={tab}
         onSaved={() => { setModalOpen(false); refreshAll() }}
-        markets={tab === 'market' ? balances : []}
-        drivers={tab === 'driver' ? balances : []}
+        markets={balances}
       />
 
       <ConfirmDialog
@@ -339,10 +294,9 @@ export function CaseTrackingPage() {
   )
 }
 
-function MovementModal({ open, onClose, scope, onSaved, markets, drivers }) {
+function MovementModal({ open, onClose, onSaved, markets }) {
   const addToast = useToastStore((s) => s.addToast)
-  const isMarket = scope === 'market'
-  const availableTypes = isMarket ? MARKET_MANUAL_TYPES : DRIVER_MANUAL_TYPES
+  const availableTypes = MARKET_MANUAL_TYPES
 
   const [type, setType] = useState(availableTypes[0])
   const [targetId, setTargetId] = useState('')
@@ -363,22 +317,21 @@ function MovementModal({ open, onClose, scope, onSaved, markets, drivers }) {
     setNote('')
     setOccurredAt(today())
     setError('')
-  }, [open, scope])
+  }, [open])
 
   async function handleSave() {
     setError('')
-    if (!targetId) { setError(isMarket ? 'Pazar seçilmeli' : 'Şoför seçilmeli'); return }
+    if (!targetId) { setError('Pazar seçilmeli'); return }
     const q = parseInt(qty, 10)
     if (!Number.isInteger(q) || q <= 0) { setError('Adet pozitif tam sayı olmalı'); return }
     const signedQty = adjustSign === '−' ? -q : q
 
     setSaving(true)
     try {
-      await api.createCaseMovement({
+      await api.createAdminCaseMovement({
         type,
         qty: signedQty,
-        marketId: isMarket ? Number(targetId) : undefined,
-        driverId: isMarket ? undefined : Number(targetId),
+        marketId: Number(targetId),
         note: note.trim() || undefined,
         occurredAt: occurredAt || undefined,
         createdBy: createdBy.trim() || undefined,
@@ -393,7 +346,7 @@ function MovementModal({ open, onClose, scope, onSaved, markets, drivers }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isMarket ? 'Bayi Kasa Hareketi' : 'Şoför Kasa Hareketi'}>
+    <Modal open={open} onClose={onClose} title="Bayi Kasa Hareketi">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-text-secondary">Hareket Tipi</label>
@@ -409,19 +362,16 @@ function MovementModal({ open, onClose, scope, onSaved, markets, drivers }) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-text-secondary">
-            {isMarket ? 'Pazar' : 'Şoför'}
-          </label>
+          <label className="text-sm font-medium text-text-secondary">Pazar</label>
           <select
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
             className="w-full px-4 py-3 rounded-xl border border-border bg-white text-text-primary text-base focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
           >
             <option value="">Seçin…</option>
-            {(isMarket ? markets : drivers).map((x) => (
+            {markets.map((x) => (
               <option key={x.id} value={x.id}>
-                {isMarket ? `#${x.no} ${x.name}` : x.name}
-                {' '}(bakiye: {x.balance ?? 0})
+                #{x.no} {x.name} (bakiye: {x.balance ?? 0})
               </option>
             ))}
           </select>

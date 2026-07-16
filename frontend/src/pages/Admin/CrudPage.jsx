@@ -8,14 +8,15 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Pencil, Trash2, Plus } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 
-// Generic CRUD page — used by Drivers, Products, Qualities, Markets
+// Generic CRUD page — used by Regions, Producers, Products, Qualities, Markets
 export function CrudPage({
   title,
+  singular,   // "Yeni X" başlığı için. Verilmezse title'dan türetilir (Türkçe çoğul eki tahmini)
   icon,
   records,
   loading,
   fields,     // [{ name, label, type?, placeholder? }]
-  columns,    // [{ label, render }]
+  columns,    // [{ label, render, exportValue? }] — render JSX dönüyorsa exportValue ŞART
   groupBy,    // opsiyonel: kayıtları bu alana göre grupla (ör. 'groupName')
   groupIcon,  // opsiyonel: (label) => emoji — grup başlığı ikonu
   onCreate,
@@ -47,6 +48,9 @@ export function CrudPage({
   function validate() {
     const e = {}
     fields.forEach((f) => {
+      // Boolean alan hiçbir zaman "zorunlu" olamaz: false geçerli bir değer,
+      // aşağıdaki !v kuralına takılırdı.
+      if (f.type === 'checkbox') return
       if (f.optional) return
       if (f.requiredOnCreate && editing) return
       const v = form[f.name]
@@ -126,8 +130,12 @@ export function CrudPage({
             prepare={() => ({
               columns: columns.map((c) => c.label),
               rows: records.map((rec) => columns.map((c) => {
-                const v = c.render(rec)
-                return v == null ? '' : (typeof v === 'string' || typeof v === 'number' ? v : String(v))
+                // render JSX döndürebilir; String(<Badge/>) → "[object Object]".
+                // Böyle kolonlar exportValue ile metin karşılığını vermeli.
+                const v = c.exportValue ? c.exportValue(rec) : c.render(rec)
+                if (v == null || typeof v === 'boolean') return ''
+                if (typeof v === 'string' || typeof v === 'number') return v
+                return '' // JSX + exportValue yok → boş bırak, "[object Object]" yazma
               })),
             })}
             disabled={!records.length}
@@ -222,7 +230,7 @@ export function CrudPage({
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editing ? `Düzenle` : `Yeni ${title.slice(0, -1)}`}
+        title={editing ? `Düzenle` : `Yeni ${singular ?? title.slice(0, -1)}`}
       >
         <div className="flex flex-col gap-4">
           {fields.map((f) => {
@@ -271,6 +279,22 @@ export function CrudPage({
                   {f.help && <p className="text-xs text-text-muted">{f.help}</p>}
                   {errors[f.name] && <p className="text-xs text-error">{errors[f.name]}</p>}
                 </div>
+              )
+            }
+            if (f.type === 'checkbox') {
+              return (
+                <label key={f.name} className="flex items-start gap-2 cursor-pointer border border-border rounded-xl px-3 py-3 hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={!!form[f.name]}
+                    onChange={(e) => setForm((prev) => ({ ...prev, [f.name]: e.target.checked }))}
+                    className="w-4 h-4 rounded accent-primary mt-0.5"
+                  />
+                  <span className="flex flex-col">
+                    <span className="text-sm font-medium text-text-secondary">{f.label}</span>
+                    {f.help && <span className="text-xs text-text-muted">{f.help}</span>}
+                  </span>
+                </label>
               )
             }
             if (f.type === 'datalist') {

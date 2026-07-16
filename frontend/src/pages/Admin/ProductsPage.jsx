@@ -43,6 +43,7 @@ export function ProductsPage() {
   return (
     <CrudPage
       title="Ürünler"
+      singular="Ürün"
       icon="🌱"
       records={records}
       loading={loading}
@@ -76,6 +77,7 @@ export function ProductsPage() {
               <span>{r.name}</span>
             </span>
           ),
+          exportValue: (r) => r.name,
         },
       ]}
       onCreate={onCreate}

@@ -43,8 +43,8 @@ export async function me(req, res) {
 
 // --- FIELD WHITELISTS (mass-assignment protection) ---
 const ALLOWED_FIELDS = {
-  driver:   ['name'],
-  producer: ['name', 'driverId', 'active'],
+  region:   ['name', 'active'],
+  producer: ['name', 'regionId', 'allRegions', 'active'],
   product:  ['name', 'icon', 'groupName'],
   quality:  ['name'],
   market:   ['no', 'name'],
@@ -98,7 +98,7 @@ function crudFor(model, orderBy = { id: 'asc' }) {
   }
 }
 
-export const driverCrud = crudFor('driver', { name: 'asc' })
+export const regionCrud = crudFor('region', { name: 'asc' })
 export const producerCrud = crudFor('producer', { name: 'asc' })
 export const productCrud = crudFor('product', { name: 'asc' })
 export const qualityCrud = crudFor('quality', { name: 'asc' })

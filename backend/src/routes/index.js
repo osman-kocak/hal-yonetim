@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import vehicleRoutes from './vehicle.js'
+import regionRoutes from './region.js'
 import entryRoutes from './entry.js'
 import exitRoutes from './exit.js'
 import marketRoutes from './market.js'
@@ -9,7 +9,7 @@ import casesRoutes from './cases.js'
 import publicRoutes from './public.js'
 
 const router = Router()
-router.use('/vehicle', vehicleRoutes)
+router.use('/region', regionRoutes)
 router.use('/entry', entryRoutes)
 router.use('/exit', exitRoutes)
 router.use('/markets', marketRoutes)

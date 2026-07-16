@@ -1,10 +1,21 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { iconFor } from './productEmoji.js'
+import { titleCaseTr } from '../src/utils/turkish.js'
+import { importProducers } from '../scripts/import-producers.js'
 
 const prisma = new PrismaClient()
 
 async function main() {
+  // Bu script aşağıda deleteMany() çağırıyor — üretimde çalıştırılırsa veri siler.
+  if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_DESTRUCTIVE_SEED) {
+    throw new Error(
+      'seed.js üretimde çalıştırılamaz (ürün/pazar/kalite verisini siler). ' +
+        'Sadece bölge+üretici güncellemek için: npm run db:import-producers. ' +
+        'Gerçekten gerekiyorsa: ALLOW_DESTRUCTIVE_SEED=1',
+    )
+  }
+
   console.log('Seed başlıyor...')
 
   // İlk admin kullanıcısını upsert et (mevcut User'lara dokunma)
@@ -20,9 +31,9 @@ async function main() {
   await prisma.exitItem.deleteMany()
   await prisma.exit.deleteMany()
   await prisma.entry.deleteMany()
-  await prisma.vehicleSession.deleteMany()
-  await prisma.driver.deleteMany()
+  await prisma.regionSession.deleteMany()
   await prisma.producer.deleteMany()
+  await prisma.region.deleteMany()
   await prisma.product.deleteMany()
   await prisma.quality.deleteMany()
   await prisma.market.deleteMany()
@@ -32,27 +43,9 @@ async function main() {
   })
   console.log(`${qualities.count} kalite eklendi`)
 
-  const producers = await prisma.producer.createMany({
-    data: [
-      { name: 'Mehmet Üretici' },
-      { name: 'Ayşe Bahçe' },
-      { name: 'Yusuf Tarım' },
-      { name: 'Fatma Sera' },
-      { name: 'Mustafa Çiftçi' },
-    ],
-  })
-  console.log(`${producers.count} üretici eklendi`)
-
-  const drivers = await prisma.driver.createMany({
-    data: [
-      { name: 'Ahmet Yılmaz' },
-      { name: 'Mehmet Kaya' },
-      { name: 'Ali Demir' },
-      { name: 'Hasan Çelik' },
-      { name: 'İbrahim Şahin' },
-    ],
-  })
-  console.log(`${drivers.count} şoför eklendi`)
+  // Bölge + üretici: tek kaynak import script'i (scripts/producers.data.js → Excel).
+  // Burada sahte üretici yaratmıyoruz — 165 gerçeğin yanında gürültü olurdu.
+  await prisma.$transaction((tx) => importProducers(tx), { timeout: 120_000, maxWait: 10_000 })
 
   // Gerçek ürün kataloğu — ana ürün gruplaması isimden türetilir (bkz. frontend/utils/productGroups.js)
   const PRODUCT_NAMES = [
@@ -87,10 +80,6 @@ async function main() {
     'ÜZÜM SİYAH', 'ÜZÜM BEYAZ', 'ÜZÜM PARMAK(TOMSON)', 'ÜZÜM SULTANİ', 'ÜZÜM VERİGO',
     'YENİ DÜNYA KG.',
   ]
-  // Türkçe başlık biçimi: her kelimenin ilk harfi büyük, gerisi küçük (İ/I doğru)
-  const titleCaseTr = (s) =>
-    s.toLocaleLowerCase('tr').replace(/(^|[\s(.\-/])(\p{L})/gu, (_, sep, ch) => sep + ch.toLocaleUpperCase('tr'))
-
   // Ana ürün (groupName) — ilk kelimeden türetilir; sadece 2+ üyeli gruplara atanır.
   // Sonradan admin panelden elle düzenlenebilir (ör. "Ayşe Fasulye" → "Fasulye").
   const ALIASES = { MANDALİNA: 'MANDALİN', KAYSI: 'KAYISI' }

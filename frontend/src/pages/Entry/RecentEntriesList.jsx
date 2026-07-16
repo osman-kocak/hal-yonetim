@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '@/services/api'
-import { useAppStore } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -19,7 +18,6 @@ export function RecentEntriesList({ sessionId }) {
   const [deleting, setDeleting] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const addToast = useToastStore((s) => s.addToast)
-  const { driverBalance, setDriverBalance } = useAppStore()
 
   const load = useCallback(async () => {
     try {
@@ -51,12 +49,8 @@ export function RecentEntriesList({ sessionId }) {
   const totalCases = useMemo(() => entries.reduce((s, e) => s + (e.caseCount ?? 0), 0), [entries])
   const totalWeight = useMemo(() => entries.reduce((s, e) => s + (e.weight ?? 0), 0), [entries])
 
-  function handleEdited(updated, deltaCases) {
+  function handleEdited(updated) {
     setEntries((prev) => prev.map((e) => (e.id === updated.id ? { ...e, ...updated } : e)))
-    // Şoför bakiyesini optimistik güncelle (DRIVER_IN sign=-1, qty pozitif. delta negatif = bakiye yukarı)
-    if (driverBalance != null && deltaCases !== 0) {
-      setDriverBalance(driverBalance - deltaCases)
-    }
     setEditTarget(null)
   }
 
@@ -65,12 +59,7 @@ export function RecentEntriesList({ sessionId }) {
     setDeleting(true)
     try {
       await api.deleteEntry(deleteTarget.id)
-      const restored = deleteTarget.caseCount ?? 0
       setEntries((prev) => prev.filter((e) => e.id !== deleteTarget.id))
-      // Bakiye geri: DRIVER_IN qty kadar bakiyeden düşmüştü, geri ekle
-      if (driverBalance != null && deleteTarget.vehicleSessionId) {
-        setDriverBalance(driverBalance + restored)
-      }
       addToast('Giriş silindi ✓')
       setDeleteTarget(null)
     } catch (err) {
@@ -184,7 +173,7 @@ export function RecentEntriesList({ sessionId }) {
         loading={deleting}
         title="Girişi Sil"
         description={deleteTarget
-          ? `${deleteTarget.caseCount} kasa ${deleteTarget.product?.name ?? 'ürün'} silinecek. Şoför bakiyesinden geri eklenecek. Onaylıyor musun?`
+          ? `${deleteTarget.caseCount} kasa ${deleteTarget.product?.name ?? 'ürün'} silinecek. Onaylıyor musun?`
           : ''}
         confirmLabel="Evet, Sil"
       />
@@ -228,9 +217,8 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
         marketId,
         weak,
       })
-      const delta = c - entry.caseCount
       addToast('Giriş güncellendi ✓')
-      onSaved(updated, delta)
+      onSaved(updated)
     } catch (err) {
       setError(err.response?.data?.error ?? 'Güncelleme başarısız')
     } finally {

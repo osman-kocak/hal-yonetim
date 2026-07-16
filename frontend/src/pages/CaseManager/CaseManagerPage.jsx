@@ -6,14 +6,13 @@ import { useToastStore } from '@/store/toastStore'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { Truck, Store, LogOut, RefreshCw, ArrowLeft } from 'lucide-react'
+import { Store, LogOut, RefreshCw, ArrowLeft } from 'lucide-react'
 
 export function CaseManagerPage() {
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
   const addToast = useToastStore((s) => s.addToast)
 
-  const [driverBalances, setDriverBalances] = useState([])
   const [marketBalances, setMarketBalances] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -21,11 +20,7 @@ export function CaseManagerPage() {
   const load = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [d, m] = await Promise.all([
-        api.getCaseDriverBalances(),
-        api.getCaseMarketBalances(),
-      ])
-      setDriverBalances(d ?? [])
+      const m = await api.getCaseMarketBalances()
       setMarketBalances((m ?? []).filter((x) => x.no !== 0))
     } catch {
       addToast('Bakiyeler yüklenemedi', 'error')
@@ -76,18 +71,7 @@ export function CaseManagerPage() {
         </div>
       </header>
 
-      <main className="p-4 sm:p-6 max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CaseMovementForm
-          title="Şoföre Kasa Ver"
-          icon={Truck}
-          accent="text-emerald-600"
-          accentBg="bg-emerald-50"
-          targetLabel="Şoför"
-          options={driverBalances.map((d) => ({ id: d.id, label: d.name, balance: d.balance }))}
-          movementType="DRIVER_OUT"
-          targetKey="driverId"
-          onSubmitted={load}
-        />
+      <main className="p-4 sm:p-6 max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
         <CaseMovementForm
           title="Pazardan İade Al"
           icon={Store}
@@ -100,7 +84,6 @@ export function CaseManagerPage() {
           onSubmitted={load}
         />
 
-        <BalanceList title="Şoför Bakiyeleri" rows={driverBalances.map((d) => ({ key: d.id, label: d.name, balance: d.balance }))} />
         <BalanceList title="Pazar Bakiyeleri" rows={marketBalances.map((m) => ({ key: m.id, label: `#${m.no} ${m.name}`, balance: m.balance }))} />
       </main>
     </div>

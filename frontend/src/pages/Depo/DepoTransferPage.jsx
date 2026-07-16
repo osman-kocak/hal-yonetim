@@ -72,7 +72,7 @@ export function DepoTransferPage() {
     return entries.filter((e) =>
       e.product?.name?.toLowerCase().includes(q) ||
       e.producer?.name?.toLowerCase().includes(q) ||
-      e.vehicleSession?.driver?.name?.toLowerCase().includes(q)
+      e.regionSession?.region?.name?.toLowerCase().includes(q)
     )
   }, [entries, query])
 
@@ -150,7 +150,7 @@ export function DepoTransferPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ürün, üretici veya şoför ara…"
+          placeholder="Ürün, üretici veya bölge ara…"
           className="w-full pl-10 pr-4 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </div>
@@ -232,7 +232,7 @@ export function DepoTransferPage() {
                           <td></td>
                           <td className="p-2 pl-6 sm:pl-8 text-text-secondary" colSpan={2}>
                             <span className="text-text-muted">↳ </span>
-                            {e.producer?.name ?? '—'} · {e.vehicleSession?.driver?.name ?? '—'}
+                            {e.producer?.name ?? '—'} · {e.regionSession?.region?.name ?? '—'}
                             <div className="sm:hidden text-text-muted mt-0.5">
                               {e.caseCount} kasa · {formatWeight(e.weight)} · {formatDate(e.createdAt)}
                               {e.weak && <span className="ml-2 text-error">⚠ Zayıf</span>}

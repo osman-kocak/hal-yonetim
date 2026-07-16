@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 
 export function ProducersPage() {
   const [records, setRecords] = useState([])
-  const [drivers, setDrivers] = useState([])
+  const [regions, setRegions] = useState([])
   const [loading, setLoading] = useState(true)
   const addToast = useToastStore((s) => s.addToast)
 
@@ -14,23 +14,26 @@ export function ProducersPage() {
 
   useEffect(() => {
     load()
-    api.getAdminDrivers().then(setDrivers).catch(() => {})
+    api.getAdminRegions().then(setRegions).catch(() => {})
   }, [])
 
-  const driverOptions = useMemo(
-    () => drivers.map((d) => ({ value: String(d.id), label: d.name })),
-    [drivers]
+  const regionOptions = useMemo(
+    () => regions.map((r) => ({ value: String(r.id), label: r.name })),
+    [regions]
   )
 
-  const driverMap = useMemo(() => {
+  const regionMap = useMemo(() => {
     const m = new Map()
-    drivers.forEach((d) => m.set(d.id, d.name))
+    regions.forEach((r) => m.set(r.id, r.name))
     return m
-  }, [drivers])
+  }, [regions])
 
   function cleanForm(form) {
-    const data = { ...form, driverId: form.driverId ? Number(form.driverId) : null }
-    return data
+    return {
+      ...form,
+      regionId: form.regionId ? Number(form.regionId) : null,
+      allRegions: !!form.allRegions,
+    }
   }
 
   async function onCreate(form) {
@@ -65,27 +68,40 @@ export function ProducersPage() {
   return (
     <CrudPage
       title="Üreticiler"
+      singular="Üretici"
       icon="👤"
       records={records}
       loading={loading}
       fields={[
         { name: 'name', label: 'Ad Soyad', placeholder: 'Mehmet Üretici' },
         {
-          name: 'driverId',
-          label: 'Atanmış Şoför',
+          name: 'regionId',
+          label: 'Bölge',
           type: 'select',
-          options: driverOptions,
+          options: regionOptions,
           optional: true,
-          help: 'Bu üretici sadece seçilen şoförün Mal Kabul ekranında görünür. Boş = hiçbir şoföre atanmamış',
+          help: 'Bu üretici sadece seçilen bölgenin Mal Kabul listesinde görünür. Boş = hiçbir bölgeye atanmamış',
+        },
+        {
+          name: 'allRegions',
+          label: 'Tüm bölgelerde görünsün',
+          type: 'checkbox',
+          optional: true,
+          help: 'İşaretliyse bölge seçiminden bağımsız olarak her bölgenin üretici listesinde çıkar',
         },
       ]}
       columns={[
         { label: 'Ad Soyad', render: (r) => r.name },
         {
-          label: 'Şoför',
-          render: (r) => r.driverId
-            ? <Badge variant="primary">{driverMap.get(r.driverId) ?? `#${r.driverId}`}</Badge>
-            : <span className="text-text-muted text-xs">Atanmamış</span>,
+          label: 'Bölge',
+          render: (r) => r.allRegions
+            ? <Badge variant="warning">Tüm bölgeler</Badge>
+            : r.regionId
+              ? <Badge variant="primary">{regionMap.get(r.regionId) ?? `#${r.regionId}`}</Badge>
+              : <span className="text-text-muted text-xs">Atanmamış</span>,
+          exportValue: (r) => r.allRegions
+            ? 'Tüm bölgeler'
+            : (r.regionId ? (regionMap.get(r.regionId) ?? `#${r.regionId}`) : 'Atanmamış'),
         },
         {
           label: 'Durum',
@@ -101,6 +117,7 @@ export function ProducersPage() {
                 : <Badge variant="success">Aktif</Badge>}
             </button>
           ),
+          exportValue: (r) => (r.active === false ? 'Pasif' : 'Aktif'),
         },
       ]}
       onCreate={onCreate}

@@ -182,7 +182,7 @@ export async function updateExit(req, res, next) {
                 include: {
                   product: true,
                   quality: true,
-                  vehicleSession: { include: { driver: true } },
+                  regionSession: { include: { region: true } },
                 },
               },
             },

@@ -6,15 +6,13 @@ import {
   listMovements,
   createMovement,
   marketBalances,
-  driverBalances,
 } from '../controllers/caseMovementController.js'
 
 const router = Router()
 
 router.use(requireAuth)
 
-// Bakiye okuma — herhangi authenticated user (operatör badge'i için)
-router.get('/balances/drivers', driverBalances)
+// Bakiye okuma — herhangi authenticated user
 router.get('/balances/markets', marketBalances)
 router.get('/movements', listMovements)
 

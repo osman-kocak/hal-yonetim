@@ -22,7 +22,7 @@ export async function listDepoEntries(req, res, next) {
         product: true,
         producer: true,
         quality: true,
-        vehicleSession: { include: { driver: true } },
+        regionSession: { include: { region: true } },
       },
     })
     res.json({ depoId: depo.id, entries })
@@ -97,7 +97,7 @@ export async function createTransfer(req, res, next) {
 
       const newEntry = await tx.entry.create({
         data: {
-          vehicleSessionId: entry.vehicleSessionId,
+          regionSessionId: entry.regionSessionId,
           productId: entry.productId,
           producerId: entry.producerId,
           qualityId: entry.qualityId,
@@ -211,7 +211,7 @@ export async function createGroupedTransfer(req, res, next) {
 
           const newEntry = await tx.entry.create({
             data: {
-              vehicleSessionId: entry.vehicleSessionId,
+              regionSessionId: entry.regionSessionId,
               productId: entry.productId,
               producerId: entry.producerId,
               qualityId: entry.qualityId,
@@ -294,10 +294,10 @@ export async function createReturn(req, res, next) {
     const result = await prisma.$transaction(async (tx) => {
       let entry = null
       if (!discarded) {
-        // 1. Yeni entry (depoya, vehicleSession yok — iade)
+        // 1. Yeni entry (depoya, bölge oturumu yok — iade)
         entry = await tx.entry.create({
           data: {
-            vehicleSessionId: null,
+            regionSessionId: null,
             productId: Number(productId),
             qualityId: qualityId ? Number(qualityId) : null,
             producerId: null,

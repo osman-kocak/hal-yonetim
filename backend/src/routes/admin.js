@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth.js'
-import { login, me, driverCrud, producerCrud, productCrud, qualityCrud, marketCrud, userCrud } from '../controllers/adminController.js'
+import { login, me, regionCrud, producerCrud, productCrud, qualityCrud, marketCrud, userCrud } from '../controllers/adminController.js'
 import { listTransfers } from '../controllers/transferController.js'
 import {
   listEntries as listLedger,
@@ -13,7 +13,7 @@ import {
 import {
   overview as analyticsOverview,
   trend as analyticsTrend,
-  byDriver as analyticsByDriver,
+  byRegion as analyticsByRegion,
   byMarket as analyticsByMarket,
   byProduct as analyticsByProduct,
   quality as analyticsQuality,
@@ -27,7 +27,6 @@ import {
   createMovement,
   deleteMovement,
   marketBalances,
-  driverBalances,
 } from '../controllers/caseMovementController.js'
 
 const router = Router()
@@ -57,11 +56,11 @@ router.use(requireAuth)
 router.get('/auth/me', me)
 router.use(requireRole('ADMIN', 'ACCOUNTING'))
 
-// Drivers
-router.get('/drivers', driverCrud.getAll)
-router.post('/drivers', driverCrud.create)
-router.put('/drivers/:id', driverCrud.update)
-router.delete('/drivers/:id', driverCrud.remove)
+// Regions
+router.get('/regions', regionCrud.getAll)
+router.post('/regions', regionCrud.create)
+router.put('/regions/:id', regionCrud.update)
+router.delete('/regions/:id', regionCrud.remove)
 
 // Producers
 router.get('/producers', producerCrud.getAll)
@@ -119,12 +118,11 @@ router.get('/case-movements', listMovements)
 router.post('/case-movements', createMovement)
 router.delete('/case-movements/:id', deleteMovement)
 router.get('/case-balances/markets', marketBalances)
-router.get('/case-balances/drivers', driverBalances)
 
 // Analytics (Dashboard)
 router.get('/analytics/overview', analyticsOverview)
 router.get('/analytics/trend', analyticsTrend)
-router.get('/analytics/by-driver', analyticsByDriver)
+router.get('/analytics/by-region', analyticsByRegion)
 router.get('/analytics/by-market', analyticsByMarket)
 router.get('/analytics/by-product', analyticsByProduct)
 router.get('/analytics/quality', analyticsQuality)

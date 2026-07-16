@@ -1,13 +1,10 @@
 import { create } from 'zustand'
 
 export const useAppStore = create((set) => ({
-  activeSession: null,
-  step: 'driver_select',
+  activeSession: null, // { id, regionId, status, region: { id, name } }
+  step: 'region_select',
   selectedProducer: null,
   selectedProduct: null,
-  driverBalance: null,
-
-  setDriverBalance: (n) => set({ driverBalance: n }),
 
   startSession: (session) =>
     set({
@@ -20,7 +17,7 @@ export const useAppStore = create((set) => ({
   completeSession: () =>
     set({
       activeSession: null,
-      step: 'driver_select',
+      step: 'region_select',
       selectedProducer: null,
       selectedProduct: null,
     }),
@@ -35,15 +32,7 @@ export const useAppStore = create((set) => ({
   backToProducts: () =>
     set({ selectedProduct: null, step: 'product_select' }),
 
-  // "Girişi Kaydet ve Üreticiyi Tamamla" — başka üretici seç, aynı araç
+  // "Girişi Kaydet ve Üreticiyi Tamamla" — başka üretici seç, aynı bölge
   backToProducers: () =>
     set({ selectedProducer: null, selectedProduct: null, step: 'producer_select' }),
-
-  cancelToDrivers: () =>
-    set({
-      activeSession: null,
-      step: 'driver_select',
-      selectedProducer: null,
-      selectedProduct: null,
-    }),
 }))

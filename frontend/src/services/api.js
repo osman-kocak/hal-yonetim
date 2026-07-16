@@ -27,21 +27,21 @@ http.interceptors.response.use(
 const unwrap = (promise) => promise.then((r) => r.data)
 
 export const api = {
-  // Vehicle
-  startVehicle: (driverId) => unwrap(http.post('/vehicle/start', { driverId })),
-  completeVehicle: (vehicleSessionId, opts = {}) => unwrap(http.post('/vehicle/complete', { vehicleSessionId, ...opts })),
+  // Region (bölge oturumu)
+  startRegion: (regionId) => unwrap(http.post('/region/start', { regionId })),
+  completeRegion: (regionSessionId) => unwrap(http.post('/region/complete', { regionSessionId })),
 
   // Entry
   createEntry: (data) => unwrap(http.post('/entry', data)),
   createEntryBatch: (data) => unwrap(http.post('/entry/batch', data)),
   updateEntry: (id, data) => unwrap(http.put(`/entry/${id}`, data)),
   deleteEntry: (id) => unwrap(http.delete(`/entry/${id}`)),
-  getSessionEntries: (sessionId) => unwrap(http.get(`/vehicle/${sessionId}/entries`)),
+  getSessionEntries: (sessionId) => unwrap(http.get(`/region/${sessionId}/entries`)),
 
-  // Public — giriş paneli için (auth gerektirmez)
-  getDrivers: () => unwrap(http.get('/drivers')),
+  // Public — mal kabul paneli için
+  getRegions: () => unwrap(http.get('/regions')),
   getProducers: () => unwrap(http.get('/producers')),
-  getProducersForDriver: (driverId) => unwrap(http.get(`/drivers/${driverId}/producers`)),
+  getProducersForRegion: (regionId) => unwrap(http.get(`/regions/${regionId}/producers`)),
   getProducts: () => unwrap(http.get('/products')),
   getQualities: () => unwrap(http.get('/qualities')),
 
@@ -65,17 +65,18 @@ export const api = {
   deleteDepoReturn: (id) => unwrap(http.delete(`/depo/returns/${id}`)),
   getAdminTransfers: (params) => unwrap(http.get('/admin/transfers', { params })),
 
-  // Kasacı (case manager) paneli
-  getCaseDriverBalances: () => unwrap(http.get('/cases/balances/drivers')),
+  // Kasacı (case manager) paneli — /cases (CASE_MANAGER + ADMIN)
+  // NOT: GET /cases/movements'ın çağıranı yok; adlandırması aşağıdaki admin
+  // getCaseMovements ile ÇAKIŞIYORDU (sonraki anahtar kazanıyor, ikisi de admin
+  // rotasına gidiyordu → kasacı 403 alıyordu). Kaldırıldı.
   getCaseMarketBalances: () => unwrap(http.get('/cases/balances/markets')),
   createCaseMovement: (data) => unwrap(http.post('/cases/movements', data)),
-  getCaseMovements: (params) => unwrap(http.get('/cases/movements', { params })),
 
   // Admin CRUD
-  getAdminDrivers: () => unwrap(http.get('/admin/drivers')),
-  createDriver: (data) => unwrap(http.post('/admin/drivers', data)),
-  updateDriver: (id, data) => unwrap(http.put(`/admin/drivers/${id}`, data)),
-  deleteDriver: (id) => unwrap(http.delete(`/admin/drivers/${id}`)),
+  getAdminRegions: () => unwrap(http.get('/admin/regions')),
+  createRegion: (data) => unwrap(http.post('/admin/regions', data)),
+  updateRegion: (id, data) => unwrap(http.put(`/admin/regions/${id}`, data)),
+  deleteRegion: (id) => unwrap(http.delete(`/admin/regions/${id}`)),
 
   getAdminProducers: () => unwrap(http.get('/admin/producers')),
   createProducer: (data) => unwrap(http.post('/admin/producers', data)),
@@ -118,7 +119,7 @@ export const api = {
   // Analytics (Dashboard)
   getAnalyticsOverview: (params) => unwrap(http.get('/admin/analytics/overview', { params })),
   getAnalyticsTrend: (params) => unwrap(http.get('/admin/analytics/trend', { params })),
-  getAnalyticsByDriver: (params) => unwrap(http.get('/admin/analytics/by-driver', { params })),
+  getAnalyticsByRegion: (params) => unwrap(http.get('/admin/analytics/by-region', { params })),
   getAnalyticsByMarket: (params) => unwrap(http.get('/admin/analytics/by-market', { params })),
   getAnalyticsByProduct: (params) => unwrap(http.get('/admin/analytics/by-product', { params })),
   getAnalyticsQuality: (params) => unwrap(http.get('/admin/analytics/quality', { params })),
@@ -131,12 +132,13 @@ export const api = {
   getProducerLedgerBalances: () => unwrap(http.get('/admin/ledger/balances/producers')),
   getFinancialReport: (params) => unwrap(http.get('/admin/ledger/report', { params })),
 
-  // Case Movements (Kasa Takip)
+  // Case Movements (Admin Kasa Takip) — /admin (ADMIN + ACCOUNTING)
+  // createAdminCaseMovement, kasacının createCaseMovement'ından AYRI olmalı:
+  // rotalar farklı role gerektiriyor (admin rotasında ACCOUNTING var, kasacı rotasında yok).
   getCaseMovements: (params) => unwrap(http.get('/admin/case-movements', { params })),
-  createCaseMovement: (data) => unwrap(http.post('/admin/case-movements', data)),
+  createAdminCaseMovement: (data) => unwrap(http.post('/admin/case-movements', data)),
   deleteCaseMovement: (id) => unwrap(http.delete(`/admin/case-movements/${id}`)),
   getMarketCaseBalances: () => unwrap(http.get('/admin/case-balances/markets')),
-  getDriverCaseBalances: () => unwrap(http.get('/admin/case-balances/drivers')),
 
   // Reports
   getDailyReport: (date) => unwrap(http.get('/admin/reports/daily', { params: { date } })),

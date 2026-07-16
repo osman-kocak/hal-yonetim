@@ -8,21 +8,22 @@ const router = Router()
 // Tüm public endpoint'ler oturum açmış kullanıcı gerektirir (rol fark etmez)
 router.use(requireAuth)
 
-router.get('/drivers', async (req, res, next) => {
+router.get('/regions', async (req, res, next) => {
   try {
-    const drivers = await prisma.driver.findMany({
+    const regions = await prisma.region.findMany({
+      where: { active: true },
       orderBy: { name: 'asc' },
       include: {
-        vehicleSessions: {
+        regionSessions: {
           where: { status: 'ACTIVE' },
           select: { id: true },
           take: 1,
         },
       },
     })
-    const result = drivers.map(({ vehicleSessions, ...d }) => ({
-      ...d,
-      hasActiveSession: vehicleSessions.length > 0,
+    const result = regions.map(({ regionSessions, ...r }) => ({
+      ...r,
+      hasActiveSession: regionSessions.length > 0,
     }))
     res.json(result)
   } catch (err) { next(err) }
@@ -38,16 +39,21 @@ router.get('/producers', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// Bir şoföre atanmış üreticiler
-router.get('/drivers/:id/producers', async (req, res, next) => {
+// Bir bölgenin üreticileri: o bölgeye atanmış olanlar + her bölgede görünenler.
+// OR sayesinde ikisini birden sağlayan üretici tek kez döner, dedupe gerekmez.
+router.get('/regions/:id/producers', async (req, res, next) => {
   try {
-    const driverId = Number(req.params.id)
-    if (!Number.isInteger(driverId)) {
-      return res.status(400).json({ error: 'Geçersiz şoför kimliği' })
+    const regionId = Number(req.params.id)
+    if (!Number.isInteger(regionId)) {
+      return res.status(400).json({ error: 'Geçersiz bölge kimliği' })
     }
     const producers = await prisma.producer.findMany({
-      where: { driverId, active: true },
-      orderBy: { name: 'asc' },
+      where: {
+        active: true,
+        OR: [{ regionId }, { allRegions: true }],
+      },
+      // allRegions olan hep en üstte — operatörün kas hafızası sabit kalsın
+      orderBy: [{ allRegions: 'desc' }, { name: 'asc' }],
     })
     res.json(producers)
   } catch (err) { next(err) }

@@ -33,3 +33,9 @@ coverage/
 
 # Deploy config (local-only VPS bilgileri)
 scripts/deploy.env
+
+# Gerçek üretici listesi — 165 kişi/işletmenin adı + bölgesi.
+# Bu repo açık kaynak; kişisel veri yayınlanmamalı.
+# Şablonu için: backend/scripts/producers.data.example.js
+# Deploy etkilenmez — deploy.sh backend/'i rsync'ler, git'e bakmaz.
+backend/scripts/producers.data.js

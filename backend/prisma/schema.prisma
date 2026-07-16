@@ -34,42 +34,45 @@ enum CaseMovementType {
   MARKET_IN       // Bayiden iade alındı (manuel)
   MARKET_INIT     // Bayi başlangıç bakiyesi
   MARKET_ADJUST   // Bayi düzeltme (qty signed olabilir)
-  DRIVER_OUT      // Şoföre kasa verildi (manuel)
-  DRIVER_IN       // Şoförden iade
-  DRIVER_INIT     // Şoför başlangıç bakiyesi
-  DRIVER_ADJUST   // Şoför düzeltme
 }
 
-model Driver {
-  id              Int              @id @default(autoincrement())
-  name            String
-  vehicleSessions VehicleSession[]
-  caseMovements   CaseMovement[]
-  producers       Producer[]
-  createdAt       DateTime         @default(now())
+// Üreticilerin bağlı olduğu coğrafi bölge. Mal kabul ekranı bölgeye göre filtreler.
+model Region {
+  id             Int             @id @default(autoincrement())
+  name           String          @unique
+  active         Boolean         @default(true)
+  producers      Producer[]
+  regionSessions RegionSession[]
+  createdAt      DateTime        @default(now())
+
+  @@index([active])
 }
 
 model Producer {
   id            Int            @id @default(autoincrement())
   name          String
   active        Boolean        @default(true)
-  driver        Driver?        @relation(fields: [driverId], references: [id], onDelete: SetNull)
-  driverId      Int?
+  region        Region?        @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  regionId      Int?
+  allRegions    Boolean        @default(false) // true → bölge seçiminden bağımsız, her bölgenin listesinde görünür
   entries       Entry[]
   ledgerEntries LedgerEntry[]
   createdAt     DateTime       @default(now())
 
-  @@index([driverId])
+  @@index([regionId])
   @@index([active])
+  @@index([allRegions])
 }
 
-model VehicleSession {
+model RegionSession {
   id        Int           @id @default(autoincrement())
-  driver    Driver        @relation(fields: [driverId], references: [id], onDelete: Restrict)
-  driverId  Int
+  region    Region        @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  regionId  Int
   status    SessionStatus @default(ACTIVE)
   entries   Entry[]
   createdAt DateTime      @default(now())
+
+  @@index([regionId, status])
 }
 
 model Product {
@@ -105,24 +108,25 @@ model Market {
 }
 
 model Entry {
-  id               Int             @id @default(autoincrement())
-  returnRecord     ReturnRecord?
-  vehicleSession   VehicleSession? @relation(fields: [vehicleSessionId], references: [id], onDelete: SetNull)
-  vehicleSessionId Int?
-  product          Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
-  productId        Int
-  producer         Producer?      @relation(fields: [producerId], references: [id], onDelete: Restrict)
-  producerId       Int?
-  quality          Quality?       @relation(fields: [qualityId], references: [id], onDelete: Restrict)
-  qualityId        Int?
-  caseCount        Int
-  weight           Float
-  weak             Boolean        @default(false)
-  market           Market         @relation(fields: [marketId], references: [id], onDelete: Restrict)
-  marketId         Int
-  exitItems        ExitItem[]
-  transfers        Transfer[]
-  createdAt        DateTime       @default(now())
+  id              Int            @id @default(autoincrement())
+  returnRecord    ReturnRecord?
+  // nullable KALMALI — iade entry'lerinin oturumu yok (bkz. transferController)
+  regionSession   RegionSession? @relation(fields: [regionSessionId], references: [id], onDelete: SetNull)
+  regionSessionId Int?
+  product         Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productId       Int
+  producer        Producer?      @relation(fields: [producerId], references: [id], onDelete: Restrict)
+  producerId      Int?
+  quality         Quality?       @relation(fields: [qualityId], references: [id], onDelete: Restrict)
+  qualityId       Int?
+  caseCount       Int
+  weight          Float
+  weak            Boolean        @default(false)
+  market          Market         @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId        Int
+  exitItems       ExitItem[]
+  transfers       Transfer[]
+  createdAt       DateTime       @default(now())
 
   // FIFO grouped transfer + market filter sorgularını hızlandırır
   @@index([marketId, productId, createdAt])
@@ -193,15 +197,13 @@ model LedgerEntry {
   @@index([type, occurredAt])
 }
 
-// Kasa hareketi — bayi & şoför kasa takibi
+// Kasa hareketi — bayi kasa takibi
 model CaseMovement {
   id           Int              @id @default(autoincrement())
   type         CaseMovementType
   qty          Int
   market       Market?          @relation(fields: [marketId], references: [id], onDelete: Restrict)
   marketId     Int?
-  driver       Driver?          @relation(fields: [driverId], references: [id], onDelete: Restrict)
-  driverId     Int?
   exit         Exit?            @relation(fields: [exitId], references: [id], onDelete: Cascade)
   exitId       Int?             @unique
   returnRecord ReturnRecord?
@@ -211,7 +213,6 @@ model CaseMovement {
   createdBy    String?
 
   @@index([marketId, occurredAt])
-  @@index([driverId, occurredAt])
 }
 
 // Bayiden mal iadesi: Entry (opt) + LedgerEntry + CaseMovement tek kayıtta toplanır.

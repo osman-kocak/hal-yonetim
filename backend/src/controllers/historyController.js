@@ -38,7 +38,7 @@ export async function getExitHistory(req, res, next) {
                   product: true,
                   producer: true,
                   quality: true,
-                  vehicleSession: { include: { driver: true } },
+                  regionSession: { include: { region: true } },
                 },
               },
             },
@@ -74,7 +74,7 @@ export async function getExitHistory(req, res, next) {
         itemCount: ex.items.length,
         totalCases: ex.items.reduce((s, i) => s + i.entry.caseCount, 0),
         totalWeight: ex.items.reduce((s, i) => s + i.entry.weight, 0),
-        drivers: [...new Set(ex.items.map((i) => i.entry.vehicleSession?.driver?.name).filter(Boolean))],
+        regions: [...new Set(ex.items.map((i) => i.entry.regionSession?.region?.name).filter(Boolean))],
         items: itemsWithPrice,
       }
     })
@@ -86,7 +86,7 @@ export async function getExitHistory(req, res, next) {
 // Tüm giriş kayıtları — paginated
 export async function getEntryHistory(req, res, next) {
   try {
-    const { date, driverId, marketId } = req.query
+    const { date, regionId, marketId } = req.query
     const { page, limit, skip } = parsePagination(req)
     const where = {}
 
@@ -94,7 +94,7 @@ export async function getEntryHistory(req, res, next) {
       const [y, m, d] = date.split('-').map(Number)
       where.createdAt = { gte: new Date(y, m - 1, d, 0, 0, 0, 0), lte: new Date(y, m - 1, d, 23, 59, 59, 999) }
     }
-    if (driverId) where.vehicleSession = { driverId: Number(driverId) }
+    if (regionId) where.regionSession = { regionId: Number(regionId) }
     if (marketId) where.marketId = Number(marketId)
 
     const [entries, total] = await Promise.all([
@@ -108,7 +108,7 @@ export async function getEntryHistory(req, res, next) {
           producer: true,
           quality: true,
           market: true,
-          vehicleSession: { include: { driver: true } },
+          regionSession: { include: { region: true } },
           exitItems: { include: { exit: true } },
         },
       }),
@@ -118,8 +118,8 @@ export async function getEntryHistory(req, res, next) {
     const data = entries.map((e) => ({
       id: e.id,
       createdAt: e.createdAt,
-      driver: e.vehicleSession?.driver ?? null,
-      sessionId: e.vehicleSessionId,
+      region: e.regionSession?.region ?? null,
+      sessionId: e.regionSessionId,
       product: e.product,
       producer: e.producer,
       quality: e.quality,

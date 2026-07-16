@@ -33,6 +33,7 @@ export function QualitiesPage() {
   return (
     <CrudPage
       title="Kaliteler"
+      singular="Kalite"
       icon="⭐"
       records={records}
       loading={loading}
@@ -41,7 +42,8 @@ export function QualitiesPage() {
         label: 'Kalite',
         render: (r) => (
           <Badge variant={r.name === 'A' ? 'quality-a' : 'quality-b'}>{r.name}</Badge>
-        )
+        ),
+        exportValue: (r) => r.name,
       }]}
       onCreate={onCreate}
       onUpdate={onUpdate}

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/utils/cn'
 import {
-  LayoutDashboard, Users, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home
+  LayoutDashboard, MapPin, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home
 } from 'lucide-react'
 
 const nav = [
@@ -15,7 +15,7 @@ const nav = [
   { to: '/admin/iadeler', label: 'İadeler', icon: RotateCcw },
   { to: '/admin/raporlar', label: 'Raporlar', icon: BarChart2 },
   { to: '/admin/kullanicilar', label: 'Kullanıcılar', icon: UserCog },
-  { to: '/admin/soforler', label: 'Şoförler', icon: Users },
+  { to: '/admin/bolgeler', label: 'Bölgeler', icon: MapPin },
   { to: '/admin/ureticiler', label: 'Üreticiler', icon: User },
   { to: '/admin/urunler', label: 'Ürünler', icon: Package },
   { to: '/admin/pazarlar', label: 'Pazarlar', icon: Store },
