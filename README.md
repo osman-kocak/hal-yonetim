@@ -29,6 +29,7 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 🔥 **Fire / imha raporu** — `99 ATILAN` pazarına yazılan mallar (`/admin/fire`). İki kaynak: bayiden iade → imha, ya da depodaki malın 99'a transferi
 - 🏷️ **Entry kaynak ayrımı** — `EntrySource` (`HARVEST` / `RETURN` / `DISCARD`). Raporlar yalnızca `HARVEST` sayar; iade ve imha entry'leri mal kabul hacmine karışmaz
 - 🔒 **Ağ kısıtı** — Prod'da `mskocak.cloud` yalnızca hal'in statik IP'sinden erişilebilir (OpenLiteSpeed vhost `accessControl`); SSH de aynı IP'ye kilitli
+- 💧 **Ekran filigranı** — Saha panellerinde (`/mal-kabul`, `/cikis`, `/depo`, `/kasaci`) kullanıcı adı + tarih/saat çapraz filigran. Ekran fotoğraflanırsa görüntü kimin oturumuna ait olduğunu taşır. Admin/muhasebe panellerinde görünmez; `pointer-events: none`, yazdırmada gizli
 
 ---
 

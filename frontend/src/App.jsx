@@ -29,6 +29,7 @@ import { RoleSelectPage } from '@/pages/RoleSelectPage'
 import { CaseManagerPage } from '@/pages/CaseManager/CaseManagerPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ProtectedRoute, PublicOnlyRoute } from '@/components/ProtectedRoute'
+import { WatermarkedLayout } from '@/components/ScreenWatermark'
 import { ToastProvider } from '@/components/ui/Toast'
 
 const router = createBrowserRouter([
@@ -44,37 +45,44 @@ const router = createBrowserRouter([
     element: <ProtectedRoute><RoleSelectPage /></ProtectedRoute>,
   },
 
-  // Mal kabul (operatör)
+  // Saha panelleri — ekran filigranı yalnızca bu gruba uygulanır. Admin/muhasebe
+  // masaüstünden çalışıyor, oralarda filigran istenmiyor (bkz. WatermarkedLayout).
   {
-    path: '/mal-kabul',
-    element: <ProtectedRoute roles={['OPERATOR', 'ADMIN']}><EntryPage /></ProtectedRoute>,
-  },
-
-  // Kasacı paneli
-  {
-    path: '/kasaci',
-    element: <ProtectedRoute roles={['CASE_MANAGER', 'ADMIN']}><CaseManagerPage /></ProtectedRoute>,
-  },
-  {
-    path: '/cikis',
-    element: <ProtectedRoute><ExitPage /></ProtectedRoute>,
-  },
-  {
-    path: '/cikis/:marketId',
-    element: <ProtectedRoute><MarketExitDetail /></ProtectedRoute>,
-  },
-
-  // Depo paneli — sadece DEPO + ADMIN
-  {
-    path: '/depo',
-    element: (
-      <ProtectedRoute roles={['DEPO', 'ADMIN']}>
-        <DepoLayout />
-      </ProtectedRoute>
-    ),
+    element: <WatermarkedLayout />,
     children: [
-      { index: true, element: <DepoTransferPage /> },
-      { path: 'transfer', element: <DepoTransferPage /> },
+      // Mal kabul (operatör)
+      {
+        path: '/mal-kabul',
+        element: <ProtectedRoute roles={['OPERATOR', 'ADMIN']}><EntryPage /></ProtectedRoute>,
+      },
+
+      // Kasacı paneli
+      {
+        path: '/kasaci',
+        element: <ProtectedRoute roles={['CASE_MANAGER', 'ADMIN']}><CaseManagerPage /></ProtectedRoute>,
+      },
+      {
+        path: '/cikis',
+        element: <ProtectedRoute><ExitPage /></ProtectedRoute>,
+      },
+      {
+        path: '/cikis/:marketId',
+        element: <ProtectedRoute><MarketExitDetail /></ProtectedRoute>,
+      },
+
+      // Depo paneli — sadece DEPO + ADMIN
+      {
+        path: '/depo',
+        element: (
+          <ProtectedRoute roles={['DEPO', 'ADMIN']}>
+            <DepoLayout />
+          </ProtectedRoute>
+        ),
+        children: [
+          { index: true, element: <DepoTransferPage /> },
+          { path: 'transfer', element: <DepoTransferPage /> },
+        ],
+      },
     ],
   },
 
