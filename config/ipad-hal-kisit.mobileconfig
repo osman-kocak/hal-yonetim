@@ -157,6 +157,10 @@
       <false/>
       <key>FullScreen</key>
       <true/>
+      <!-- İkon bilerek gömülmedi: iOS ana ekran ikonunu siteden çeker
+           (index.html'deki apple-touch-icon, 180x180 PNG). Gömülü <data>
+           bloğu profili şişiriyor ve ikon her değiştiğinde profilin
+           yeniden dağıtılmasını gerektiriyor; siteden çekince deploy yeter. -->
     </dict>
 
   </array>
