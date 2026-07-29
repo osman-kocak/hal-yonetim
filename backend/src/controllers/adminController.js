@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prismaClient.js'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
+import { audit } from '../utils/audit.js'
 
 const BCRYPT_ROUNDS = 10
 
@@ -37,8 +38,20 @@ export async function login(req, res, next) {
   }
 }
 
-export async function me(req, res) {
-  res.json({ id: req.user.id, username: req.user.username, roles: req.user.roles, name: req.user.name })
+// JWT'deki roller token üretildiği andaki hâli. Admin sonradan rol değiştirirse
+// kullanıcı yeniden giriş yapana kadar eski rolüyle gezer. Bu yüzden DB'den taze
+// oku — aynı zamanda silinmiş/pasife alınmış hesabı da burada yakalarız.
+export async function me(req, res, next) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, name: true, username: true, roles: true, active: true },
+    })
+    if (!user || !user.active) {
+      return res.status(401).json({ error: 'Hesap devre dışı, lütfen tekrar giriş yapın' })
+    }
+    res.json({ id: user.id, username: user.username, roles: user.roles, name: user.name })
+  } catch (err) { next(err) }
 }
 
 // --- FIELD WHITELISTS (mass-assignment protection) ---
@@ -69,6 +82,11 @@ function crudFor(model, orderBy = { id: 'asc' }) {
     async getAll(req, res, next) {
       try {
         const records = await prisma[model].findMany({ orderBy })
+        // Üretici (tedarikçi) ve pazar (müşteri) listeleri rakip-değeri yüksek —
+        // tam liste okumasını izle. Düşük değerli listeler (ürün/kalite) atlanır.
+        if (model === 'producer' || model === 'market') {
+          audit(req, { action: 'READ', resource: model, recordCount: records.length })
+        }
         res.json(records)
       } catch (err) { next(err) }
     },

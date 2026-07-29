@@ -1,4 +1,6 @@
 import { prisma } from '../utils/prismaClient.js'
+import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
+import { audit } from '../utils/audit.js'
 
 const MARKET_TYPES = ['MARKET_INVOICE', 'MARKET_PAYMENT', 'MARKET_ADJUSTMENT']
 const PRODUCER_TYPES = ['PRODUCER_DEBT', 'PRODUCER_PAYMENT', 'PRODUCER_ADJUSTMENT']
@@ -25,12 +27,10 @@ export async function listEntries(req, res, next) {
     if (producerId) where.producerId = Number(producerId)
     if (dateFrom || dateTo) {
       where.occurredAt = {}
-      if (dateFrom) where.occurredAt.gte = new Date(dateFrom)
-      if (dateTo) {
-        const d = new Date(dateTo)
-        d.setHours(23, 59, 59, 999)
-        where.occurredAt.lte = d
-      }
+      // new Date('...') UTC gece yarısı, .setHours() yerel saat → TR'de üst
+      // sınır 20:59'a düşüyor ve günün son 3 saati filtreden kayboluyordu
+      if (dateFrom) where.occurredAt.gte = startOfLocalDay(dateFrom)
+      if (dateTo) where.occurredAt.lte = endOfLocalDay(dateTo)
     }
     const data = await prisma.ledgerEntry.findMany({
       where,
@@ -41,6 +41,7 @@ export async function listEntries(req, res, next) {
         exit: { select: { id: true } },
       },
     })
+    audit(req, { action: 'READ', resource: 'ledger', recordCount: data.length })
     res.json(data)
   } catch (err) {
     next(err)
@@ -61,8 +62,13 @@ export async function createEntry(req, res, next) {
     if (a === 0) {
       return res.status(400).json({ error: 'Tutar 0 olamaz' })
     }
+    // Yön signFor() ile belirlenir, sadece ADJUSTMENT tipleri signed olabilir.
+    // Eskiden bu blok boştu: MARKET_PAYMENT'a -1000 girilince sign -1 ile
+    // çarpılıp bakiyeye +1000 yazılıyordu — yani tahsilat girmek borcu ARTIRIYORDU.
     if (!ADJUSTMENT_TYPES.includes(type) && a < 0) {
-      // İstemci eksi yön gönderebilir, kabul edelim — tutar her zaman signed olabilir
+      return res.status(400).json({
+        error: 'Bu hareket tipinde tutar pozitif olmalı — borç/alacak yönü otomatik belirlenir',
+      })
     }
 
     if (MARKET_TYPES.includes(type)) {
@@ -93,11 +99,21 @@ export async function createEntry(req, res, next) {
 export async function deleteEntry(req, res, next) {
   try {
     const id = Number(req.params.id)
-    const entry = await prisma.ledgerEntry.findUnique({ where: { id } })
+    const entry = await prisma.ledgerEntry.findUnique({
+      where: { id },
+      include: { returnRecord: { select: { id: true } } },
+    })
     if (!entry) return res.status(404).json({ error: 'Hareket bulunamadı' })
     if (entry.exitId) {
       return res.status(400).json({
         error: 'İrsaliye bağlantılı hareket silinemez; ilgili irsaliyeyi düzenleyin veya silin',
+      })
+    }
+    // İade kaynaklı kredi notunun exitId'si yok; korumasız bırakılınca
+    // silinebiliyor ve ReturnRecord.ledgerEntryId SetNull ile öksüz kalıyordu.
+    if (entry.returnRecord) {
+      return res.status(400).json({
+        error: 'İade bağlantılı hareket silinemez; iade kaydını silin',
       })
     }
     await prisma.ledgerEntry.delete({ where: { id } })
@@ -154,11 +170,8 @@ export async function financialReport(req, res, next) {
     const where = {}
     if (dateFrom || dateTo) {
       where.occurredAt = {}
-      if (dateFrom) where.occurredAt.gte = new Date(dateFrom)
-      if (dateTo) {
-        const d = new Date(dateTo); d.setHours(23, 59, 59, 999)
-        where.occurredAt.lte = d
-      }
+      if (dateFrom) where.occurredAt.gte = startOfLocalDay(dateFrom)
+      if (dateTo) where.occurredAt.lte = endOfLocalDay(dateTo)
     }
     const groups = await prisma.ledgerEntry.groupBy({
       by: ['type'],

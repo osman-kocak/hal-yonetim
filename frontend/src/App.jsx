@@ -1,4 +1,7 @@
+import { useEffect } from 'react'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
+import { api } from '@/services/api'
+import { useAuthStore } from '@/store/authStore'
 import { EntryPage } from '@/pages/Entry/EntryPage'
 import { ExitPage } from '@/pages/Exit/ExitPage'
 import { MarketExitDetail } from '@/pages/Exit/MarketExitDetail'
@@ -17,6 +20,8 @@ import { TransfersPage } from '@/pages/Admin/TransfersPage'
 import { FinancePage } from '@/pages/Admin/FinancePage'
 import { UsersPage } from '@/pages/Admin/UsersPage'
 import { ReturnsPage } from '@/pages/Admin/ReturnsPage'
+import { FirePage } from '@/pages/Admin/FirePage'
+import { AuditPage } from '@/pages/Admin/AuditPage'
 import { DepoLayout } from '@/pages/Depo/DepoLayout'
 import { DepoTransferPage } from '@/pages/Depo/DepoTransferPage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -89,7 +94,9 @@ const router = createBrowserRouter([
       { path: 'kasalar', element: <CaseTrackingPage /> },
       { path: 'transferler', element: <TransfersPage /> },
       { path: 'iadeler', element: <ReturnsPage /> },
+      { path: 'fire', element: <FirePage /> },
       { path: 'kullanicilar', element: <UsersPage /> },
+      { path: 'erisim-kayitlari', element: <AuditPage /> },
       { path: 'bolgeler', element: <RegionsPage /> },
       { path: 'ureticiler', element: <ProducersPage /> },
       { path: 'urunler', element: <ProductsPage /> },
@@ -103,6 +110,16 @@ const router = createBrowserRouter([
 ])
 
 export default function App() {
+  // Açılışta token'ı sunucuya doğrulat. localStorage'daki token tek başına
+  // "giriş yapılmış" demek değil — hesap pasife alınmış veya rolleri değişmiş
+  // olabilir. 401 gelirse api interceptor'ı oturumu kapatıp /giris'e atar.
+  useEffect(() => {
+    if (!useAuthStore.getState().isAuthenticated) return
+    api.authMe()
+      .then((user) => useAuthStore.getState().setUser(user))
+      .catch(() => {})
+  }, [])
+
   return (
     <>
       <RouterProvider router={router} />

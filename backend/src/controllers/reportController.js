@@ -1,5 +1,11 @@
 import { prisma } from '../utils/prismaClient.js'
 import { getPriceMap } from './priceController.js'
+import { toPriceDate, startOfLocalDay, endOfLocalDay } from '../utils/date.js'
+
+// Raporlar sadece gerçek mal kabulünü sayar. İade ve imha entry'leri de
+// Entry tablosunda durduğu için filtresiz toplamak çift sayıma yol açıyordu:
+// Pazar 3'e giden 180 kg iade gelince günlük rapor 360 kg gösteriyordu.
+const HARVEST_ONLY = { source: 'HARVEST' }
 
 function dayRange(dateStr) {
   if (dateStr) {
@@ -22,7 +28,7 @@ export async function dailyReport(req, res, next) {
 
     const [entrySummary, exitCount] = await Promise.all([
       prisma.entry.aggregate({
-        where: { createdAt: { gte: start, lte: end } },
+        where: { createdAt: { gte: start, lte: end }, ...HARVEST_ONLY },
         _sum: { caseCount: true, weight: true },
         _count: { id: true },
       }),
@@ -45,7 +51,7 @@ export async function byMarketReport(req, res, next) {
 
     const grouped = await prisma.entry.groupBy({
       by: ['marketId'],
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, ...HARVEST_ONLY },
       _sum: { caseCount: true, weight: true },
       _count: { id: true },
     })
@@ -76,7 +82,7 @@ export async function byProductReport(req, res, next) {
 
     const grouped = await prisma.entry.groupBy({
       by: ['productId', 'qualityId'],
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, ...HARVEST_ONLY },
       _sum: { caseCount: true, weight: true },
       _count: { id: true },
     })
@@ -92,8 +98,10 @@ export async function byProductReport(req, res, next) {
     const productMap = Object.fromEntries(products.map((p) => [p.id, p]))
     const qualityMap = Object.fromEntries(qualities.map((q) => [q.id, q]))
 
-    // Fiyat map'ini getir
-    const priceMap = await getPriceMap(start)
+    // start yerel gün başı (TR gece yarısı = UTC 21:00, önceki gün). Doğrudan
+    // getPriceMap'e verilince Price.date UTC gün başına yuvarlanıp bir gün
+    // geriye kayıyor ve rapor dünün fiyatlarıyla ciro hesaplıyordu.
+    const priceMap = await getPriceMap(toPriceDate(req.query.date))
 
     const result = grouped
       .map((g) => {
@@ -124,7 +132,7 @@ export async function topProducts(req, res, next) {
 
     const grouped = await prisma.entry.groupBy({
       by: ['productId'],
-      where: { createdAt: { gte: since } },
+      where: { createdAt: { gte: since }, ...HARVEST_ONLY },
       _sum: { caseCount: true, weight: true },
       _count: { id: true },
       orderBy: { _sum: { weight: 'desc' } },
@@ -145,5 +153,68 @@ export async function topProducts(req, res, next) {
     }))
 
     res.json(result)
+  } catch (err) { next(err) }
+}
+
+// Fire/imha raporu — 99 ATILAN'a yazılan mallar. Bu rapor 99'un varlık
+// sebebi: eskiden imha edilen mal hiçbir yere kaydedilmiyordu, "bu ay ne
+// kadar fire verdik" sorusunun cevabı yoktu.
+export async function fireReport(req, res, next) {
+  try {
+    const { dateFrom, dateTo } = req.query
+    const createdAt = {}
+    if (dateFrom) {
+      const from = startOfLocalDay(dateFrom)
+      if (!from) return res.status(400).json({ error: 'dateFrom geçersiz' })
+      createdAt.gte = from
+    }
+    if (dateTo) {
+      const to = endOfLocalDay(dateTo)
+      if (!to) return res.status(400).json({ error: 'dateTo geçersiz' })
+      createdAt.lte = to
+    }
+    const dateFilter = Object.keys(createdAt).length ? { createdAt } : {}
+
+    const grouped = await prisma.entry.groupBy({
+      by: ['productId'],
+      where: { source: 'DISCARD', ...dateFilter },
+      _sum: { caseCount: true, weight: true },
+      _count: { id: true },
+      orderBy: { _sum: { weight: 'desc' } },
+    })
+
+    const products = await prisma.product.findMany({
+      where: { id: { in: grouped.map((g) => g.productId) } },
+    })
+    const productMap = Object.fromEntries(products.map((p) => [p.id, p]))
+
+    // Parasal karşılık ReturnRecord'da: bayiden gelip imha edilen malın
+    // borçtan düşülen tutarı. Depodan dökülen malın iade kaydı yoktur → 0.
+    const returns = await prisma.returnRecord.findMany({
+      where: { discarded: true, ...dateFilter },
+      select: { productId: true, amount: true },
+    })
+    const amountByProduct = {}
+    for (const r of returns) {
+      amountByProduct[r.productId] = (amountByProduct[r.productId] ?? 0) + r.amount
+    }
+
+    const round2 = (n) => Math.round(n * 100) / 100
+    const items = grouped.map((g) => ({
+      product: productMap[g.productId],
+      entryCount: g._count.id,
+      totalCases: g._sum.caseCount ?? 0,
+      totalWeight: round2(g._sum.weight ?? 0),
+      amount: round2(amountByProduct[g.productId] ?? 0),
+    }))
+
+    res.json({
+      items,
+      totals: {
+        cases: items.reduce((s, i) => s + i.totalCases, 0),
+        weight: round2(items.reduce((s, i) => s + i.totalWeight, 0)),
+        amount: round2(items.reduce((s, i) => s + i.amount, 0)),
+      },
+    })
   } catch (err) { next(err) }
 }

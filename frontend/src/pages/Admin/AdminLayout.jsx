@@ -1,8 +1,9 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
+import { hasAnyRole } from '@/utils/roles'
 import { cn } from '@/utils/cn'
 import {
-  LayoutDashboard, MapPin, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home
+  LayoutDashboard, MapPin, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert
 } from 'lucide-react'
 
 const nav = [
@@ -13,8 +14,10 @@ const nav = [
   { to: '/admin/kasalar', label: 'Kasa Takip', icon: Boxes },
   { to: '/admin/transferler', label: 'Transferler', icon: ArrowLeftRight },
   { to: '/admin/iadeler', label: 'İadeler', icon: RotateCcw },
+  { to: '/admin/fire', label: 'Fire / İmha', icon: Trash },
   { to: '/admin/raporlar', label: 'Raporlar', icon: BarChart2 },
-  { to: '/admin/kullanicilar', label: 'Kullanıcılar', icon: UserCog },
+  { to: '/admin/kullanicilar', label: 'Kullanıcılar', icon: UserCog, adminOnly: true },
+  { to: '/admin/erisim-kayitlari', label: 'Erişim Kayıtları', icon: ShieldAlert, adminOnly: true },
   { to: '/admin/bolgeler', label: 'Bölgeler', icon: MapPin },
   { to: '/admin/ureticiler', label: 'Üreticiler', icon: User },
   { to: '/admin/urunler', label: 'Ürünler', icon: Package },
@@ -25,7 +28,9 @@ const nav = [
 export function AdminLayout() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
-  // Auth + role kontrolü ProtectedRoute tarafından yapılır
+  // Auth + role kontrolü ProtectedRoute tarafından yapılır.
+  // ADMIN-only menüler (kullanıcılar, erişim kayıtları) ACCOUNTING'e gizlenir.
+  const isAdmin = hasAnyRole(user, 'ADMIN')
 
   return (
     <div className="min-h-screen bg-bg flex">
@@ -39,7 +44,7 @@ export function AdminLayout() {
           )}
         </div>
         <nav className="flex-1 p-3 flex flex-col gap-1">
-          {nav.map(({ to, label, icon: Icon, end }) => (
+          {nav.filter((item) => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}

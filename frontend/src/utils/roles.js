@@ -1,6 +1,6 @@
 // Çoklu rol yardımcıları — user.roles array, geriye-uyum için user.role da desteklenir.
 
-export function getUserRoles(user) {
+function getUserRoles(user) {
   if (!user) return []
   if (Array.isArray(user.roles)) return user.roles
   if (user.role) return [user.role]

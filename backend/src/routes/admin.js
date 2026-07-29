@@ -18,8 +18,9 @@ import {
   byProduct as analyticsByProduct,
   quality as analyticsQuality,
 } from '../controllers/analyticsController.js'
-import { dailyReport, byMarketReport, byProductReport, topProducts } from '../controllers/reportController.js'
+import { dailyReport, byMarketReport, byProductReport, topProducts, fireReport } from '../controllers/reportController.js'
 import { getPrices, upsertPrice } from '../controllers/priceController.js'
+import { logExport, listAuditLogs } from '../controllers/auditController.js'
 import { getExitHistory, getEntryHistory } from '../controllers/historyController.js'
 import { updateExit, deleteExit } from '../controllers/exitController.js'
 import {
@@ -132,5 +133,10 @@ router.get('/reports/daily', dailyReport)
 router.get('/reports/by-market', byMarketReport)
 router.get('/reports/by-product', byProductReport)
 router.get('/reports/top-products', topProducts)
+router.get('/reports/fire', fireReport)
+
+// Denetim (audit) — export niyeti kaydı ADMIN+ACCOUNTING; kayıtları görme ADMIN'e özel
+router.post('/audit/export', logExport)
+router.get('/audit', requireRole('ADMIN'), listAuditLogs)
 
 export default router

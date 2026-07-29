@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '@/services/api'
+import { api, errorMessage } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Badge } from '@/components/ui/Badge'
@@ -285,17 +285,23 @@ function ReturnModal({ open, markets, products, onClose, onDone }) {
   const [caseCount, setCaseCount] = useState('')
   const [weight, setWeight] = useState('')
   const [weak, setWeak] = useState(true) // iade genelde zayıf
-  const [discarded, setDiscarded] = useState(false) // atılan: depoya alma, sadece kasa+borç
+  const [destination, setDestination] = useState('DEPO') // DEPO | MARKET | DISCARD
+  const [toMarketId, setToMarketId] = useState('')
   const [pricePerKg, setPricePerKg] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const addToast = useToastStore((s) => s.addToast)
 
+  // DEPO (0) ve ATILAN (99) bayi değil — bayi/hedef listelerinde görünmemeli
+  const dealerMarkets = markets.filter((m) => !m.isSpecial)
+  const targetMarkets = dealerMarkets.filter((m) => String(m.id) !== String(fromMarketId))
+
   useEffect(() => {
     if (open) {
       setFromMarketId(''); setProductId(''); setCaseCount(''); setWeight('')
-      setWeak(true); setDiscarded(false); setPricePerKg(''); setNote(''); setError('')
+      setWeak(true); setDestination('DEPO'); setToMarketId('')
+      setPricePerKg(''); setNote(''); setError('')
     }
   }, [open])
 
@@ -303,6 +309,7 @@ function ReturnModal({ open, markets, products, onClose, onDone }) {
     setError('')
     if (!fromMarketId) { setError('İade veren bayi seçilmeli'); return }
     if (!productId) { setError('Ürün seçilmeli'); return }
+    if (destination === 'MARKET' && !toMarketId) { setError('Hedef pazar seçilmeli'); return }
     const c = Number(caseCount)
     const w = Number(weight)
     if (!Number.isInteger(c) || c < 1) { setError('Kasa adedi pozitif tam sayı olmalı'); return }
@@ -315,15 +322,24 @@ function ReturnModal({ open, markets, products, onClose, onDone }) {
         caseCount: c,
         weight: w,
         weak,
-        discarded,
+        destination,
+        toMarketId: destination === 'MARKET' ? Number(toMarketId) : undefined,
         pricePerKg: pricePerKg ? Number(pricePerKg) : undefined,
         note: note.trim() || undefined,
       })
-      const tip = discarded ? ' (mal döküldü, depoya alınmadı)' : ''
-      addToast(`İade kabul edildi${tip} · Bayi borcundan ₺${result.amount.toFixed(2)} düşüldü ✓`)
+      const where = {
+        DEPO: 'depoya alındı',
+        MARKET: `${result.targetMarket.name} pazarına yönlendirildi`,
+        DISCARD: 'imha edildi (99 ATILAN)',
+      }[destination]
+      addToast(`İade ${where} · Bayi borcundan ₺${result.amount.toFixed(2)} düşüldü ✓`)
+      // Fiyat bulunamadıysa borçtan 0₺ düşülür — sessizce geçilmemeli
+      if (result.priceMissing) {
+        addToast('⚠ Bugün için fiyat tanımlı değil — borçtan ₺0 düşüldü, fiyatı elle girin')
+      }
       onDone()
     } catch (err) {
-      setError(err.response?.data?.error ?? 'İade kaydı başarısız')
+      setError(errorMessage(err, 'İade kaydı başarısız'))
     } finally {
       setSaving(false)
     }
@@ -333,7 +349,7 @@ function ReturnModal({ open, markets, products, onClose, onDone }) {
     <Modal open={open} onClose={onClose} title="İade Kabul">
       <div className="flex flex-col gap-4">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
-          Bayiden gelen iade mal sisteme alınır: yeni depo girişi oluşur, bayi borcundan değer düşülür ve bayi kasa bakiyesinden sayı eksilir.
+          Bayiden gelen iade mal kayda alınır: bayi borcundan değer düşülür, bayi kasa bakiyesinden sayı eksilir. Mal seçtiğiniz yere yazılır.
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -345,7 +361,7 @@ function ReturnModal({ open, markets, products, onClose, onDone }) {
               className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="">Seçin…</option>
-              {markets.map((m) => (
+              {dealerMarkets.map((m) => (
                 <option key={m.id} value={m.id}>#{m.no} {m.name}</option>
               ))}
             </select>
@@ -400,30 +416,60 @@ function ReturnModal({ open, markets, products, onClose, onDone }) {
           />
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
-          <label className={`flex items-center gap-2 cursor-pointer ${discarded ? 'opacity-50' : ''}`}>
-            <input
-              type="checkbox"
-              checked={weak}
-              disabled={discarded}
-              onChange={(e) => setWeak(e.target.checked)}
-              className="w-4 h-4 rounded accent-error"
-            />
-            <span className="text-sm text-text-secondary">Zayıf mal olarak işaretle</span>
-          </label>
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium text-text-secondary">Mal nereye gitsin?</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {[
+              { key: 'DEPO', label: '📦 Depo', hint: 'Depoya al, sonra sevk et' },
+              { key: 'MARKET', label: '🔄 Başka pazar', hint: 'Doğrudan yönlendir' },
+              { key: 'DISCARD', label: '🗑 İmha', hint: '99 ATILAN — fire' },
+            ].map((opt) => (
+              <label
+                key={opt.key}
+                className={`flex flex-col gap-0.5 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                  destination === opt.key
+                    ? 'border-primary bg-primary-light'
+                    : 'border-border bg-white hover:border-primary/40'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="return-destination"
+                    checked={destination === opt.key}
+                    onChange={() => setDestination(opt.key)}
+                    className="w-4 h-4 accent-primary"
+                  />
+                  <span className="text-sm font-medium text-text-primary">{opt.label}</span>
+                </div>
+                <span className="text-xs text-text-muted pl-6">{opt.hint}</span>
+              </label>
+            ))}
+          </div>
 
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={discarded}
-              onChange={(e) => setDiscarded(e.target.checked)}
-              className="w-4 h-4 rounded accent-error"
-            />
-            <span className="text-sm text-text-secondary" title="Mal döküldü/atıldı — depoya alınmaz, sadece kasa ve bayi borcu işlenir">
-              Atılan (depoya alma, kasa + borç düş)
-            </span>
-          </label>
+          {destination === 'MARKET' && (
+            <select
+              value={toMarketId}
+              onChange={(e) => setToMarketId(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">Hedef pazar seçin…</option>
+              {targetMarkets.map((m) => (
+                <option key={m.id} value={m.id}>#{m.no} {m.name}</option>
+              ))}
+            </select>
+          )}
         </div>
+
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={weak}
+            onChange={(e) => setWeak(e.target.checked)}
+            className="w-4 h-4 rounded accent-error"
+          />
+          <span className="text-sm text-text-secondary">Zayıf mal olarak işaretle</span>
+        </label>
 
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium text-text-secondary">Not (opsiyonel)</label>

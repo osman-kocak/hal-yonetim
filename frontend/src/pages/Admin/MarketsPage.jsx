@@ -32,6 +32,8 @@ export function MarketsPage() {
   return (
     <CrudPage
       title="Pazarlar"
+      exportRoles={['ADMIN']}
+      exportResource="markets"
       singular="Pazar"
       icon="🏪"
       records={records}

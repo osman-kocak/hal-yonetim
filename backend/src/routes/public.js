@@ -1,12 +1,15 @@
 import { Router } from 'express'
 import { prisma } from '../utils/prismaClient.js'
 import { getPublicPrices } from '../controllers/priceController.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const router = Router()
 
-// Tüm public endpoint'ler oturum açmış kullanıcı gerektirir (rol fark etmez)
+// Referans verisi (bölge/üretici/ürün/fiyat) — mal kabul ve çıkış akışları
+// kullanıyor. CASE_MANAGER'ın hiçbirine ihtiyacı yok, dışlanıyor. Fiyat
+// tablosu ticari sır; geçmiş tarih sorgusu ayrıca controller'da ADMIN'e kısıtlı.
 router.use(requireAuth)
+router.use(requireRole('OPERATOR', 'DEPO', 'ACCOUNTING', 'ADMIN'))
 
 router.get('/regions', async (req, res, next) => {
   try {
@@ -26,16 +29,6 @@ router.get('/regions', async (req, res, next) => {
       hasActiveSession: regionSessions.length > 0,
     }))
     res.json(result)
-  } catch (err) { next(err) }
-})
-
-router.get('/producers', async (req, res, next) => {
-  try {
-    const producers = await prisma.producer.findMany({
-      where: { active: true },
-      orderBy: { name: 'asc' },
-    })
-    res.json(producers)
   } catch (err) { next(err) }
 })
 
@@ -71,14 +64,7 @@ router.get('/products', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-router.get('/qualities', async (req, res, next) => {
-  try {
-    const qualities = await prisma.quality.findMany({ orderBy: { name: 'asc' } })
-    res.json(qualities)
-  } catch (err) { next(err) }
-})
-
-// Günlük fiyat map'i (operatör paneli için — auth gerektirmez)
+// Günlük fiyat map'i (operatör paneli için)
 router.get('/prices', getPublicPrices)
 
 export default router

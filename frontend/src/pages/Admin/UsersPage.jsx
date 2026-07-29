@@ -57,6 +57,8 @@ export function UsersPage() {
   return (
     <CrudPage
       title="Kullanıcılar"
+      exportRoles={['ADMIN']}
+      exportResource="users"
       singular="Kullanıcı"
       icon="👤"
       records={records}

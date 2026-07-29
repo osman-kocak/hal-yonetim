@@ -22,11 +22,3 @@ export function SelectCard({ label, sublabel, icon, selected, onClick, disabled,
     </button>
   )
 }
-
-export function DataCard({ className, children }) {
-  return (
-    <div className={cn('bg-card border border-border rounded-xl shadow-card p-4', className)}>
-      {children}
-    </div>
-  )
-}

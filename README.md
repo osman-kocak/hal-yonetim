@@ -25,6 +25,10 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 🔥 **Akıllı ürün sıralaması** — Mal kabul ekranındaki ürünler en çok girişi yapılana göre sıralanır (global)
 - 🔄 **Üretici aktif/pasif** — Admin panelinde tek tıkla toggle; pasif üreticiler operatör ekranında görünmez, backend de blok eder (cari kayıtlar korunur)
 - 🗂️ **Ana ürün gruplaması** — Ürünlere admin panelinden "Ana ürün" (`Product.groupName`) atanır; mal kabul ekranında ana ürün (Portakal) → tıkla → çeşitler (Kan, Şeker, Valensia…) açılır. Admin ürün listesi de gruplu gösterilir
+- 🛡️ **Denetim kaydı (audit log)** — Hassas veri okuma ve export'ları kaydeder (`AuditLog`: kim, ne zaman, hangi kaynak, kaç satır). Admin panelinde `/admin/denetim` görüntüleyici; 200 satır üstü okuma anomali olarak işaretlenir. Export tarayıcıda üretildiği için istemci indirmeden önce niyet kaydı gönderir
+- 🔥 **Fire / imha raporu** — `99 ATILAN` pazarına yazılan mallar (`/admin/fire`). İki kaynak: bayiden iade → imha, ya da depodaki malın 99'a transferi
+- 🏷️ **Entry kaynak ayrımı** — `EntrySource` (`HARVEST` / `RETURN` / `DISCARD`). Raporlar yalnızca `HARVEST` sayar; iade ve imha entry'leri mal kabul hacmine karışmaz
+- 🔒 **Ağ kısıtı** — Prod'da `mskocak.cloud` yalnızca hal'in statik IP'sinden erişilebilir (OpenLiteSpeed vhost `accessControl`); SSH de aynı IP'ye kilitli
 
 ---
 
@@ -232,6 +236,8 @@ Transfer kaydı + ilgili Entry'lerin marketId güncellenir
 | `/admin/pazarlar` | ADMIN, ACC. | Pazar/Bayi CRUD |
 | `/admin/kaliteler` | ADMIN, ACC. | Kalite CRUD |
 | `/admin/raporlar` | ADMIN, ACC. | Günlük/pazar/ürün/top products |
+| `/admin/fire` | ADMIN, ACC. | Fire/imha raporu (99 ATILAN pazarı) |
+| `/admin/denetim` | ADMIN | Denetim kaydı görüntüleyici (anomali işaretli) |
 
 ---
 
@@ -244,7 +250,7 @@ Ana entity'ler:
 - **RegionSession** — Bir bölgenin gün içi mal kabul oturumu (`ACTIVE`/`COMPLETED`)
 - **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable)
 - **Market** — Pazar/bayi (`no` unique numara)
-- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/kilo)
+- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/kilo). `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar
 - **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot)
 - **Transfer** — Pazardan pazara taşıma geçmişi
 - **Price** — Günlük (product, quality, date) fiyatları — `@@unique`
@@ -252,6 +258,7 @@ Ana entity'ler:
 - **CaseMovement** — Boş kasa hareketi (`MARKET_OUT/IN/INIT/ADJUST`) — bayi tarafı
 - **ReturnRecord** — Bayiden iade (atomic Entry + Ledger + CaseMovement bağlar)
 - **User** — Sistem kullanıcısı + `roles: UserRole[]`
+- **AuditLog** — Hassas veri erişim/export kaydı (`action`, `resource`, `recordCount`, `ip`, `userAgent`). `username` denormalize: hesap silinse de iz kalır
 
 Detay: [`backend/prisma/schema.prisma`](backend/prisma/schema.prisma)
 

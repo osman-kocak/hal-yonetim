@@ -1,5 +1,9 @@
 import { prisma } from '../utils/prismaClient.js'
 
+// Raporlar sadece gerçek mal kabulünü sayar — iade/imha entry'leri hariç
+// (bkz. reportController.HARVEST_ONLY, aynı çift sayım sorunu)
+const HARVEST_ONLY = { source: 'HARVEST' }
+
 function startOfDay(d) {
   const x = new Date(d)
   x.setHours(0, 0, 0, 0)
@@ -211,7 +215,7 @@ export async function byProduct(req, res, next) {
 
     const grouped = await prisma.entry.groupBy({
       by: ['productId'],
-      where: { createdAt: { gte: start, lte: end } },
+      where: { createdAt: { gte: start, lte: end }, ...HARVEST_ONLY },
       _sum: { caseCount: true, weight: true },
       _count: { id: true },
       orderBy: { _sum: { weight: 'desc' } },

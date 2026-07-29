@@ -17,7 +17,7 @@ export function ProtectedRoute({ children, roles }) {
   return children
 }
 
-export function roleHome() {
+function roleHome() {
   // Tüm roller önce onboarding sayfasına gider — tek erişimi olan otomatik yönlendirilir
   return '/'
 }

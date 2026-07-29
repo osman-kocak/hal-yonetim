@@ -9,8 +9,15 @@ export function requireAuth(req, res, next) {
     req.user = jwt.verify(header.slice(7), process.env.JWT_SECRET)
     next()
   } catch (err) {
-    const status = err.name === 'TokenExpiredError' ? 403 : 401
-    res.status(status).json({ error: 'Oturum süresi doldu, lütfen tekrar giriş yapın' })
+    // Süresi dolmuş token da 401 olmalı: "kimliğini yeniden doğrula" demek.
+    // 403 dönerse frontend interceptor oturumu temizlemez ve kullanıcı ölü
+    // token'la içeride sıkışır. 403 sadece requireRole'a ait (yetki yok).
+    const expired = err.name === 'TokenExpiredError'
+    res.status(401).json({
+      error: expired
+        ? 'Oturum süresi doldu, lütfen tekrar giriş yapın'
+        : 'Yetkisiz erişim',
+    })
   }
 }
 

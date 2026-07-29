@@ -36,21 +36,26 @@ export function ReturnsPage() {
   }, [marketId, dateFrom, dateTo])
 
   useEffect(() => {
-    api.getAdminMarkets().then((all) => setMarkets((all ?? []).filter((m) => m.no !== 0))).catch(() => {})
+    // DEPO (0) ve ATILAN (99) bayi değil — iade veren filtresinde görünmemeli
+    api.getAdminMarkets().then((all) => setMarkets((all ?? []).filter((m) => m.no !== 0 && m.no !== 99))).catch(() => {})
   }, [])
 
   useEffect(() => { load() }, [load])
 
-  const filtered = returns.filter((r) => {
-    if (filterType === 'depo') return !r.discarded
-    if (filterType === 'discarded') return r.discarded
-    return true
-  })
+  // İade üç yere gidebilir; hedefi entry'nin yazıldığı pazardan okuyoruz
+  // (no 0 = DEPO, no 99 = ATILAN, gerisi normal bayi)
+  function destOf(r) {
+    if (r.discarded) return 'discarded'
+    return r.entry?.market?.no === 0 ? 'depo' : 'market'
+  }
+
+  const filtered = returns.filter((r) => filterType === 'all' || destOf(r) === filterType)
 
   const totalAmount = filtered.reduce((s, r) => s + (r.amount ?? 0), 0)
   const totalCases = filtered.reduce((s, r) => s + (r.caseCount ?? 0), 0)
-  const totalDiscarded = filtered.filter((r) => r.discarded).length
-  const totalToDepo = filtered.filter((r) => !r.discarded).length
+  const totalDiscarded = filtered.filter((r) => destOf(r) === 'discarded').length
+  const totalToDepo = filtered.filter((r) => destOf(r) === 'depo').length
+  const totalToMarket = filtered.filter((r) => destOf(r) === 'market').length
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -87,7 +92,7 @@ export function ReturnsPage() {
               Number(r.weight).toFixed(2),
               Number(r.pricePerKg).toFixed(2),
               Number(r.amount).toFixed(2),
-              r.discarded ? 'Atılan (depoya alınmadı)' : 'Depoya alındı',
+              { discarded: 'İmha (99 ATILAN)', depo: 'Depoya alındı', market: `→ ${r.entry?.market?.name ?? ''}` }[destOf(r)],
               r.weak ? 'Evet' : '',
               r.note ?? '',
               r.createdBy ?? '',
@@ -98,11 +103,12 @@ export function ReturnsPage() {
       </div>
 
       {/* Özet */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
         <SummaryCard label="İade Sayısı" value={filtered.length} />
         <SummaryCard label="Toplam Kasa" value={totalCases} />
         <SummaryCard label="Depoya Alınan" value={totalToDepo} />
-        <SummaryCard label="Atılan (Dökülen)" value={totalDiscarded} color="text-error" />
+        <SummaryCard label="Pazara Yönlendirilen" value={totalToMarket} />
+        <SummaryCard label="İmha (99 ATILAN)" value={totalDiscarded} color="text-error" />
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-6 text-sm text-amber-900">
@@ -112,13 +118,18 @@ export function ReturnsPage() {
       {/* Filter */}
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
-          {['all', 'depo', 'discarded'].map((t) => (
+          {[
+            { key: 'all', label: 'Hepsi' },
+            { key: 'depo', label: 'Depoya Alındı' },
+            { key: 'market', label: 'Pazara Yönlendirildi' },
+            { key: 'discarded', label: 'İmha' },
+          ].map((t) => (
             <button
-              key={t}
-              onClick={() => setFilterType(t)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterType === t ? 'bg-white text-text-primary shadow-card' : 'text-text-muted hover:text-text-primary'}`}
+              key={t.key}
+              onClick={() => setFilterType(t.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filterType === t.key ? 'bg-white text-text-primary shadow-card' : 'text-text-muted hover:text-text-primary'}`}
             >
-              {t === 'all' ? 'Hepsi' : t === 'depo' ? 'Depoya Alındı' : 'Atılan'}
+              {t.label}
             </button>
           ))}
         </div>
@@ -190,10 +201,14 @@ export function ReturnsPage() {
                   <td className="p-3 text-right tabular-nums hidden lg:table-cell">₺{Number(r.pricePerKg).toFixed(2)}</td>
                   <td className="p-2 sm:p-3 text-right font-semibold text-blue-700 tabular-nums">−₺{fmtTL(r.amount)}</td>
                   <td className="p-2 sm:p-3 text-center">
-                    {r.discarded ? (
+                    {destOf(r) === 'discarded' ? (
                       <Badge variant="error" className="inline-flex items-center gap-1 text-[10px]">
                         <AlertTriangle className="w-2.5 h-2.5" />
-                        Atıldı
+                        İmha
+                      </Badge>
+                    ) : destOf(r) === 'market' ? (
+                      <Badge variant="warning" className="text-[10px]">
+                        → #{r.entry?.market?.no} {r.entry?.market?.name}
                       </Badge>
                     ) : (
                       <Badge variant="success" className="text-[10px]">Depoda</Badge>

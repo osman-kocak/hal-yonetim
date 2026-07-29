@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
 
 const MARKET_TYPES = ['MARKET_OUT', 'MARKET_IN', 'MARKET_INIT', 'MARKET_ADJUST']
 // MARKET_OUT elle girilemez — irsaliye (Exit) ile otomatik oluşur
@@ -20,12 +21,9 @@ export async function listMovements(req, res, next) {
     if (marketId) where.marketId = Number(marketId)
     if (dateFrom || dateTo) {
       where.occurredAt = {}
-      if (dateFrom) where.occurredAt.gte = new Date(dateFrom)
-      if (dateTo) {
-        const d = new Date(dateTo)
-        d.setHours(23, 59, 59, 999)
-        where.occurredAt.lte = d
-      }
+      // TR saat diliminde üst sınır 20:59'a düşüyordu — bkz. utils/date.js
+      if (dateFrom) where.occurredAt.gte = startOfLocalDay(dateFrom)
+      if (dateTo) where.occurredAt.lte = endOfLocalDay(dateTo)
     }
     const data = await prisma.caseMovement.findMany({
       where,
@@ -64,7 +62,9 @@ export async function createMovement(req, res, next) {
       note: note?.trim() || null,
       marketId: Number(marketId),
       occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
-      createdBy: createdBy?.trim() || 'Admin',
+      // Oturumdaki kullanıcıyı yaz — eskiden kasacının hareketleri de 'Admin'
+      // olarak loglanıyordu (ledgerController req.user'ı doğru kullanıyor)
+      createdBy: createdBy?.trim() || req.user?.name || req.user?.username || 'Admin',
     }
     const mv = await prisma.caseMovement.create({
       data,
@@ -79,11 +79,21 @@ export async function createMovement(req, res, next) {
 export async function deleteMovement(req, res, next) {
   try {
     const id = Number(req.params.id)
-    const mv = await prisma.caseMovement.findUnique({ where: { id } })
+    const mv = await prisma.caseMovement.findUnique({
+      where: { id },
+      include: { returnRecord: { select: { id: true } } },
+    })
     if (!mv) return res.status(404).json({ error: 'Hareket bulunamadı' })
     if (mv.exitId) {
       return res.status(400).json({
         error: 'İrsaliye bağlantılı hareket silinemez; ilgili irsaliyeyi düzenleyin veya silin',
+      })
+    }
+    // İade kaynaklı hareketin exitId'si yok; korumasız bırakılınca silinebiliyor
+    // ve ReturnRecord.caseMovementId SetNull ile öksüz kalıyordu.
+    if (mv.returnRecord) {
+      return res.status(400).json({
+        error: 'İade bağlantılı hareket silinemez; iade kaydını silin',
       })
     }
     await prisma.caseMovement.delete({ where: { id } })

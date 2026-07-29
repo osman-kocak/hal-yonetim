@@ -1,5 +1,7 @@
 import { prisma } from '../utils/prismaClient.js'
 import { getPriceMap } from './priceController.js'
+import { isSpecialMarket, DEPO_NO } from '../utils/markets.js'
+import { toPriceDate } from '../utils/date.js'
 
 export async function createExit(req, res, next) {
   try {
@@ -9,11 +11,16 @@ export async function createExit(req, res, next) {
       return res.status(400).json({ error: 'Market ve en az bir ürün seçimi zorunludur' })
     }
 
-    // Depoya (no=0) irsaliye kesilemez
+    // Özel pazarlara (DEPO=0, ATILAN=99) irsaliye kesilemez — bunlar bayi değil.
+    // Eskiden sadece DEPO engelliydi; 99'a entry yazılmaya başlayınca imha
+    // edilen mala irsaliye kesilip bayiye borç yazılabilirdi.
     const targetMarket = await prisma.market.findUnique({ where: { id: Number(marketId) } })
     if (!targetMarket) return res.status(404).json({ error: 'Pazar bulunamadı' })
-    if (targetMarket.no === 0) {
-      return res.status(400).json({ error: 'Depoya irsaliye kesilemez — Depo Transfer kullanın' })
+    if (isSpecialMarket(targetMarket)) {
+      const hint = targetMarket.no === DEPO_NO
+        ? 'Depoya irsaliye kesilemez — Depo Transfer kullanın'
+        : 'İmha pazarına irsaliye kesilemez'
+      return res.status(400).json({ error: hint })
     }
 
     const createdBy = req.body.createdBy ?? 'Operatör'
@@ -28,15 +35,26 @@ export async function createExit(req, res, next) {
       return res.status(409).json({ error: `Bazı ürünler zaten irsaliye edilmiş (giriş ID: ${ids})` })
     }
 
-    const now = new Date()
-    const localDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    const priceMap = await getPriceMap(new Date(localDateStr))
+    const priceMap = await getPriceMap(toPriceDate())
 
     // Önce entry'leri çek ki fiyat snapshot'ı items yazılırken hazır olsun
     const targetEntries = await prisma.entry.findMany({
       where: { id: { in: entryIds.map(Number) } },
-      select: { id: true, productId: true, qualityId: true },
+      select: { id: true, productId: true, qualityId: true, marketId: true },
     })
+
+    // Entry'ler gerçekten bu pazara ait mi? updateExit bunu kontrol ediyordu,
+    // createExit etmiyordu: API'den başka pazarın malı bu irsaliyeye yazılıp
+    // borç ve kasa hareketi yanlış bayiye gidebiliyordu.
+    if (targetEntries.length !== entryIds.length) {
+      return res.status(404).json({ error: 'Bazı girişler bulunamadı' })
+    }
+    const foreign = targetEntries.filter((e) => e.marketId !== Number(marketId))
+    if (foreign.length) {
+      return res.status(400).json({
+        error: `Bazı girişler bu pazara ait değil (giriş ID: ${foreign.map((e) => e.id).join(', ')})`,
+      })
+    }
     const entryPriceMap = new Map(targetEntries.map((e) => {
       const key = `${e.productId}_${e.qualityId}`
       return [e.id, priceMap[key] ?? null]
@@ -146,15 +164,27 @@ export async function updateExit(req, res, next) {
       return res.status(400).json({ error: 'Seçilen girişlerin bir kısmı bu pazara ait değil' })
     }
 
-    const priceMap = await getPriceMap(existingExit.createdAt)
+    const priceMap = await getPriceMap(toPriceDate(existingExit.createdAt))
     const editedBy = req.body.editedBy ?? 'Admin'
 
-    // entry'lerin product/quality bilgisini al ki fiyat snapshot'ı atılırken kullanılsın
+    // Zaten irsaliyede olan kalemlerin fiyat snapshot'ı KORUNMALI.
+    // Eskiden tüm ExitItem'lar silinip hepsi güncel fiyatla yeniden yazılıyordu:
+    // irsaliyeye tek kalem eklemek, değişmemiş kalemlerin fiyatını da
+    // güncelliyor ve bayinin faturası kendiliğinden değişiyordu.
+    // (schema.prisma: "sonradan fiyat değişse de irsaliye tutarı sabit kalır")
+    const existingItems = await prisma.exitItem.findMany({
+      where: { exitId: Number(id) },
+      select: { entryId: true, pricePerKg: true },
+    })
+    const lockedPrices = new Map(existingItems.map((i) => [i.entryId, i.pricePerKg]))
+
+    // entry'lerin product/quality bilgisini al ki YENİ kalemlere fiyat atanabilsin
     const targetEntries = await prisma.entry.findMany({
       where: { id: { in: entryIds.map(Number) } },
       select: { id: true, productId: true, qualityId: true },
     })
     const entryPriceMap = new Map(targetEntries.map((e) => {
+      if (lockedPrices.has(e.id)) return [e.id, lockedPrices.get(e.id)]
       const key = `${e.productId}_${e.qualityId}`
       return [e.id, priceMap[key] ?? null]
     }))

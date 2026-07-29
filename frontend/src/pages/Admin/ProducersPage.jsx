@@ -68,6 +68,8 @@ export function ProducersPage() {
   return (
     <CrudPage
       title="Üreticiler"
+      exportRoles={['ADMIN']}
+      exportResource="producers"
       singular="Üretici"
       icon="👤"
       records={records}

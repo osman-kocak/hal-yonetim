@@ -1,10 +1,11 @@
 import { prisma } from '../utils/prismaClient.js'
+import { toPriceDate, localDateString } from '../utils/date.js'
 
 // Belirli bir gün için tüm fiyatları getir (ürün+kalite kombinasyonları)
 export async function getPrices(req, res, next) {
   try {
-    const date = req.query.date ? new Date(req.query.date) : new Date()
-    const day = toDay(date)
+    const day = toDay(req.query.date)
+    if (!day) return res.status(400).json({ error: 'Tarih geçersiz' })
 
     const prices = await prisma.price.findMany({
       where: { date: day },
@@ -26,7 +27,8 @@ export async function upsertPrice(req, res, next) {
     if (isNaN(priceValue) || priceValue < 0) {
       return res.status(400).json({ error: 'Fiyat sıfır veya pozitif bir sayı olmalıdır' })
     }
-    const day = toDay(date ? new Date(date) : new Date())
+    const day = toDay(date)
+    if (!day) return res.status(400).json({ error: 'Tarih geçersiz' })
     const saved = await prisma.price.upsert({
       where: { productId_qualityId_date: { productId: Number(productId), qualityId: Number(qualityId), date: day } },
       create: { productId: Number(productId), qualityId: Number(qualityId), pricePerKg: priceValue, date: day, updatedBy: updatedBy ?? null },
@@ -37,11 +39,23 @@ export async function upsertPrice(req, res, next) {
   } catch (err) { next(err) }
 }
 
-// Public: belirli tarih için fiyat listesi (auth gerektirmez)
+// Operatör paneli için günlük fiyat map'i. Fiyat = ticari sır; operatör
+// yalnızca BUGÜNÜN fiyatına ihtiyaç duyar. Geçmiş tarih zaman serisi kurup
+// fiyat politikasını dışarı çıkarmaya yarar — bu yüzden geçmiş sorgu ADMIN/
+// ACCOUNTING'e kısıtlı.
 export async function getPublicPrices(req, res, next) {
   try {
-    const date = req.query.date ? new Date(req.query.date) : new Date()
-    const day = toDay(date)
+    const day = toDay(req.query.date)
+    if (!day) return res.status(400).json({ error: 'Tarih geçersiz' })
+
+    if (req.query.date && req.query.date !== localDateString()) {
+      const roles = Array.isArray(req.user?.roles) ? req.user.roles : []
+      const privileged = roles.some((r) => ['ADMIN', 'ACCOUNTING'].includes(String(r).toUpperCase()))
+      if (!privileged) {
+        return res.status(403).json({ error: 'Geçmiş tarih fiyatlarına erişim yetkiniz yok' })
+      }
+    }
+
     const prices = await prisma.price.findMany({ where: { date: day } })
     // { "productId_qualityId": pricePerKg }
     res.json(Object.fromEntries(prices.map((p) => [`${p.productId}_${p.qualityId}`, p.pricePerKg])))
@@ -56,8 +70,10 @@ export async function getPriceMap(date) {
   return Object.fromEntries(prices.map((p) => [`${p.productId}_${p.qualityId}`, p.pricePerKg]))
 }
 
+// toDay() new Date()'i doğrudan UTC gün başına yuvarlıyordu: TR'de gece
+// 00:00-03:00 arasında UTC hâlâ önceki gün olduğu için fiyatlar bir gün
+// geriden okunuyordu. toPriceDate() yerel takvim gününü baz alır.
+// Geçersiz tarihte null döner — çağıran 400 verebilsin diye.
 function toDay(date) {
-  const d = new Date(date)
-  d.setUTCHours(0, 0, 0, 0)
-  return d
+  return toPriceDate(date ?? new Date())
 }

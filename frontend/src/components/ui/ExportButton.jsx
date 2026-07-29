@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { Download, FileSpreadsheet, FileText } from 'lucide-react'
+import { useAuthStore } from '@/store/authStore'
+import { hasAnyRole } from '@/utils/roles'
+import { api } from '@/services/api'
 
 // Generic export butonu. Bir prepare fonksiyonu alır, çağrı yapılınca
 // { title, columns, rows, filename } döndürmesini bekler.
@@ -7,11 +10,13 @@ import { Download, FileSpreadsheet, FileText } from 'lucide-react'
 //   <ExportButton
 //     title="Finans Raporu"
 //     filename="finans-2026-05-16"
+//     roles={['ADMIN']}   // opsiyonel: sadece bu rollere export butonu göster
 //     prepare={() => ({ columns: [...], rows: [[...]] })}
 //   />
-export function ExportButton({ title, subtitle, filename, prepare, disabled }) {
+export function ExportButton({ title, subtitle, filename, prepare, disabled, roles, resource }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+  const user = useAuthStore((s) => s.user)
 
   useEffect(() => {
     function onClick(e) {
@@ -21,12 +26,23 @@ export function ExportButton({ title, subtitle, filename, prepare, disabled }) {
     return () => document.removeEventListener('mousedown', onClick)
   }, [open])
 
+  // roles verildiyse yalnızca o rollere export imkânı ver. Tedarikçi/müşteri/
+  // kullanıcı listeleri gibi rakip-değeri yüksek dökümler ADMIN'e kısıtlanır.
+  // Erken return TÜM hook'lardan sonra olmalı (hook sırası bozulmasın).
+  if (roles && !hasAnyRole(user, ...roles)) return null
+
   async function trigger(type) {
     setOpen(false)
     try {
       const data = prepare()
       if (!data || !data.rows?.length) return
       const args = { title, subtitle, filename, ...data }
+      // Export tarayıcıda üretiliyor → tek iz bu ping. resource verildiyse
+      // indirmeyi denetim kaydına yaz (kim, ne zaman, kaç satır). Log hatası
+      // export'u engellemesin.
+      if (resource) {
+        api.logExport(resource, data.rows.length).catch(() => {})
+      }
       // Lazy load — sadece tıklandığında PDF/XLSX kütüphanelerini yükle
       const { exportToPDF, exportToXLSX } = await import('@/utils/exportData')
       if (type === 'pdf') await exportToPDF(args)

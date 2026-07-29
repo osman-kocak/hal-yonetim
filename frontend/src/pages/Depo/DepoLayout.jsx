@@ -1,20 +1,22 @@
 import { Navigate, Outlet, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { hasAnyRole, formatRoles } from '@/utils/roles'
-import { Boxes, LogOut, ArrowLeft } from 'lucide-react'
+import { LogOut, ArrowLeft } from 'lucide-react'
 
 export function DepoLayout() {
   const { isAuthenticated, user, logout } = useAuthStore()
   const navigate = useNavigate()
 
-  if (!isAuthenticated) return <Navigate to="/depo/giris" replace />
+  // /depo/giris artık yok, tek giriş ekranı /giris. Yetkisi olmayan kullanıcıyı
+  // login'e değil ana sayfaya at — giriş yapmış, sadece bu panele erişemiyor.
+  if (!isAuthenticated) return <Navigate to="/giris" replace />
   if (user && !hasAnyRole(user, 'DEPO', 'ADMIN')) {
-    return <Navigate to="/depo/giris" replace />
+    return <Navigate to="/" replace />
   }
 
   function handleLogout() {
     logout()
-    navigate('/depo/giris')
+    navigate('/giris')
   }
 
   return (

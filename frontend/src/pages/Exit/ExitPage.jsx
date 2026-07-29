@@ -14,8 +14,10 @@ export function ExitPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    api.getMarkets()
-      .then((all) => setMarkets((all ?? []).filter((m) => m.no !== 0)))
+    // Çıkış ekranı bekleyen kasa sayısını gösteriyor → withPending
+    api.getMarketsWithPending()
+      // isSpecial: DEPO (0) ve ATILAN (99) — ikisine de irsaliye kesilemez
+      .then((all) => setMarkets((all ?? []).filter((m) => !m.isSpecial)))
       .catch(() => addToast('Pazarlar yüklenemedi', 'error'))
       .finally(() => setLoading(false))
   }, [])

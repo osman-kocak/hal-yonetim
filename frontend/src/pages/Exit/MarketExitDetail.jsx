@@ -87,7 +87,10 @@ export function MarketExitDetail() {
   }
 
   async function handleCreateExit() {
-    if (market?.no === 0) { addToast('Depoya irsaliye kesilemez', 'error'); return }
+    if (market?.isSpecial) {
+      addToast(market.no === 0 ? 'Depoya irsaliye kesilemez' : 'İmha pazarına irsaliye kesilemez', 'error')
+      return
+    }
     if (!selected.size) { addToast('En az bir ürün seçin', 'error'); return }
     setSubmitting(true)
     try {
@@ -110,8 +113,8 @@ export function MarketExitDetail() {
     )
   }
 
-  // Depo (no=0) için irsaliye kesilemez — kullanıcıyı bilgilendir
-  if (market?.no === 0) {
+  // Özel pazarlar (DEPO=0, ATILAN=99) için irsaliye kesilemez — bilgilendir
+  if (market?.isSpecial) {
     return (
       <div className="min-h-screen bg-bg">
         <header className="bg-white border-b border-border px-4 py-4">
@@ -119,16 +122,25 @@ export function MarketExitDetail() {
             <button onClick={() => navigate('/cikis')} className="p-2 rounded-lg hover:bg-gray-100 text-text-muted">
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-lg font-bold text-text-primary">Depo</h1>
+            <h1 className="text-lg font-bold text-text-primary">{market.name}</h1>
           </div>
         </header>
         <main className="p-4 sm:p-6 max-w-5xl mx-auto">
-          <EmptyState
-            icon="📦"
-            title="Depoya irsaliye kesilemez"
-            description="Depo bir pazar değil — buradaki ürünleri pazarlara aktarmak için Depo Transfer sayfasını kullan."
-            action={<Button onClick={() => navigate('/depo')}>Depo Transfer'e git</Button>}
-          />
+          {market.no === 0 ? (
+            <EmptyState
+              icon="📦"
+              title="Depoya irsaliye kesilemez"
+              description="Depo bir pazar değil — buradaki ürünleri pazarlara aktarmak için Depo Transfer sayfasını kullan."
+              action={<Button onClick={() => navigate('/depo')}>Depo Transfer'e git</Button>}
+            />
+          ) : (
+            <EmptyState
+              icon="🗑"
+              title="İmha pazarına irsaliye kesilemez"
+              description="Buradaki mallar imha edilmiş (fire) kayıtlardır. Özetini görmek için Fire / İmha raporunu kullan."
+              action={<Button onClick={() => navigate('/admin/fire')}>Fire raporuna git</Button>}
+            />
+          )}
         </main>
       </div>
     )

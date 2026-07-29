@@ -1,6 +1,11 @@
 import axios from 'axios'
 
-const http = axios.create({ baseURL: '/api' })
+// Timeout ŞART: yoksa ölü keep-alive bağlantısında (mobil NAT bağlantıyı sessizce
+// düşürür) tarayıcı TCP retransmit'i bekler — istek ~2 dk asılı kalır, sonra
+// "Network Error" döner. Kullanıcı bunu "giriş başarısız" sanıyordu.
+const TIMEOUT_MS = 15000
+
+const http = axios.create({ baseURL: '/api', timeout: TIMEOUT_MS })
 
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('hal_admin_token')
@@ -8,11 +13,38 @@ http.interceptors.request.use((config) => {
   return config
 })
 
+// Yanıtsız istek = büyük ihtimalle ölü bağlantı. Retry taze TCP bağlantısı açar
+// ve genelde anında başarılı olur; kullanıcı 2 dk yerine ~15 sn bekler.
+export function isNetworkError(err) {
+  return !err?.response && (
+    err?.code === 'ECONNABORTED' ||
+    err?.code === 'ERR_NETWORK' ||
+    err?.message === 'Network Error'
+  )
+}
+
+// Hata mesajı üretici — ağ hatasını sunucu hatasından ayırır ki kullanıcı
+// bağlantı sorununu şifre hatası sanmasın.
+export function errorMessage(err, fallback = 'Bir hata oluştu') {
+  if (isNetworkError(err)) {
+    return 'Bağlantı kurulamadı — internetinizi kontrol edip tekrar deneyin'
+  }
+  return err?.response?.data?.error ?? fallback
+}
+
 http.interceptors.response.use(
   (r) => r,
   (err) => {
-    const status = err.response?.status
-    if (status === 401) {
+    // Ağ hatasında bir kez otomatik retry (sadece bir kez — sonsuz döngü olmasın)
+    const config = err?.config
+    if (isNetworkError(err) && config && !config.__retried) {
+      config.__retried = true
+      return http(config)
+    }
+
+    // 401 = kimlik doğrulanamadı (token yok/geçersiz/süresi dolmuş) → oturumu temizle.
+    // 403 = kimlik doğru ama yetki yok → oturuma dokunma, sayfa kendi hatasını göstersin.
+    if (err?.response?.status === 401) {
       localStorage.removeItem('hal_admin_token')
       localStorage.removeItem('hal_admin_user')
       if (!window.location.pathname.startsWith('/giris')) {
@@ -32,7 +64,6 @@ export const api = {
   completeRegion: (regionSessionId) => unwrap(http.post('/region/complete', { regionSessionId })),
 
   // Entry
-  createEntry: (data) => unwrap(http.post('/entry', data)),
   createEntryBatch: (data) => unwrap(http.post('/entry/batch', data)),
   updateEntry: (id, data) => unwrap(http.put(`/entry/${id}`, data)),
   deleteEntry: (id) => unwrap(http.delete(`/entry/${id}`)),
@@ -40,13 +71,13 @@ export const api = {
 
   // Public — mal kabul paneli için
   getRegions: () => unwrap(http.get('/regions')),
-  getProducers: () => unwrap(http.get('/producers')),
   getProducersForRegion: (regionId) => unwrap(http.get(`/regions/${regionId}/producers`)),
   getProducts: () => unwrap(http.get('/products')),
-  getQualities: () => unwrap(http.get('/qualities')),
 
   // Markets
   getMarkets: () => unwrap(http.get('/markets')),
+  // Çıkış ekranı için: bayi listesi + bekleyen kasa sayısı (yetki gerektirir)
+  getMarketsWithPending: () => unwrap(http.get('/markets', { params: { withPending: 1 } })),
   getMarketEntries: (marketId) => unwrap(http.get(`/markets/${marketId}/entries`)),
 
   // Exit
@@ -58,7 +89,6 @@ export const api = {
 
   // Depo
   getDepoEntries: () => unwrap(http.get('/depo/entries')),
-  createTransfer: (data) => unwrap(http.post('/depo/transfer', data)),
   createGroupedTransfer: (data) => unwrap(http.post('/depo/transfer-grouped', data)),
   createDepoReturn: (data) => unwrap(http.post('/depo/return', data)),
   listDepoReturns: (params) => unwrap(http.get('/depo/returns', { params })),
@@ -144,6 +174,11 @@ export const api = {
   getDailyReport: (date) => unwrap(http.get('/admin/reports/daily', { params: { date } })),
   getByMarketReport: (date) => unwrap(http.get('/admin/reports/by-market', { params: { date } })),
   getByProductReport: (date) => unwrap(http.get('/admin/reports/by-product', { params: { date } })),
+  getFireReport: (params) => unwrap(http.get('/admin/reports/fire', { params })),
+
+  // Denetim (audit)
+  logExport: (resource, recordCount) => unwrap(http.post('/admin/audit/export', { resource, recordCount })),
+  getAuditLogs: (params) => unwrap(http.get('/admin/audit', { params })),
   getTopProducts: (days = 7, limit = 10) =>
     unwrap(http.get('/admin/reports/top-products', { params: { days, limit } })),
 }

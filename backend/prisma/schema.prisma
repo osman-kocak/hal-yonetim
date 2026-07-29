@@ -20,6 +20,14 @@ enum UserRole {
   CASE_MANAGER
 }
 
+// Entry'nin nereden geldiği. Raporlar HARVEST'e göre filtreler — iade ve imha
+// malı "bugün gelen mal" sayılırsa mal kabul hacmi çift sayılır.
+enum EntrySource {
+  HARVEST   // Normal mal kabul (bölge oturumundan)
+  RETURN    // Bayiden iade — depoya veya doğrudan başka pazara
+  DISCARD   // İmha — 99 ATILAN pazarına yazılır
+}
+
 enum LedgerEntryType {
   MARKET_INVOICE       // İrsaliye → bayi borcu (otomatik, Exit ile)
   MARKET_PAYMENT       // Tahsilat (manuel)
@@ -122,6 +130,8 @@ model Entry {
   caseCount       Int
   weight          Float
   weak            Boolean        @default(false)
+  // Mal kabul mu, iade mi, imha mı — raporlar buna göre filtreler
+  source          EntrySource    @default(HARVEST)
   market          Market         @relation(fields: [marketId], references: [id], onDelete: Restrict)
   marketId        Int
   exitItems       ExitItem[]
@@ -131,6 +141,8 @@ model Entry {
   // FIFO grouped transfer + market filter sorgularını hızlandırır
   @@index([marketId, productId, createdAt])
   @@index([createdAt])
+  // Raporlar source'a göre filtreler (HARVEST) + fire raporu (DISCARD)
+  @@index([source, createdAt])
 }
 
 model Exit {
@@ -271,4 +283,23 @@ model Transfer {
   @@index([entryId])
   @@index([fromMarketId, createdAt])
   @@index([toMarketId, createdAt])
+}
+
+// Erişim/denetim kaydı — hassas veri okuma ve export'ları izler.
+// Sızıntı olduğunda "kim, ne zaman, hangi veriyi, kaç kayıt" sorusunun cevabı.
+// userId denormalize edilmedi; username kopyalanıyor ki hesap silinse bile iz kalsın.
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int?
+  username    String?  // kayıt anındaki kullanıcı adı (hesap sonradan silinse de durur)
+  action      String   // READ | EXPORT
+  resource    String   // ledger | producers | markets | prices | analytics ...
+  recordCount Int?     // dönen/işlenen kayıt sayısı — anomali tespiti için
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([resource, createdAt])
+  @@index([action, createdAt])
 }

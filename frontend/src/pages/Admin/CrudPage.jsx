@@ -19,6 +19,8 @@ export function CrudPage({
   columns,    // [{ label, render, exportValue? }] — render JSX dönüyorsa exportValue ŞART
   groupBy,    // opsiyonel: kayıtları bu alana göre grupla (ör. 'groupName')
   groupIcon,  // opsiyonel: (label) => emoji — grup başlığı ikonu
+  exportRoles, // opsiyonel: export butonunu yalnızca bu rollere göster (hassas listeler için)
+  exportResource, // opsiyonel: export'u denetim kaydına yaz (kaynak adı)
   onCreate,
   onUpdate,
   onDelete,
@@ -126,6 +128,8 @@ export function CrudPage({
         <div className="flex items-center gap-2">
           <ExportButton
             title={title}
+            roles={exportRoles}
+            resource={exportResource}
             filename={`${title.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().slice(0, 10)}`}
             prepare={() => ({
               columns: columns.map((c) => c.label),

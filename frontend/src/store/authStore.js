@@ -23,6 +23,12 @@ export const useAuthStore = create((set) => ({
     set({ token, user: user ?? null, isAuthenticated: true })
   },
 
+  // Sunucudan gelen taze kullanıcı bilgisi (rol değişiklikleri dahil) ile tazele
+  setUser: (user) => {
+    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
+    set({ user: user ?? null })
+  },
+
   logout: () => {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(USER_KEY)

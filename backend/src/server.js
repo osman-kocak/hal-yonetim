@@ -13,6 +13,11 @@ if (!process.env.JWT_SECRET) {
 const app = express()
 const PORT = process.env.PORT ?? 3001
 
+// LiteSpeed 127.0.0.1'den proxy'liyor. Bu ayar olmadan req.ip HER kullanıcı için
+// '127.0.0.1' döner → login rate limit'i tüm sistem için tek sayaca dönüşür
+// (15 dakikada toplam 10 giriş). X-Forwarded-For'un ilk hop'una güven.
+app.set('trust proxy', 1)
+
 const allowedOrigin = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173'
 app.use(cors({ origin: allowedOrigin }))
 app.use(express.json())

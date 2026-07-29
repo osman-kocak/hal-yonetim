@@ -18,68 +18,34 @@ async function validateProducerForSession(producerId, session) {
   return null
 }
 
-export async function createEntry(req, res, next) {
-  try {
-    const { regionSessionId, productId, producerId, qualityId, caseCount, weight, marketId } = req.body
-
-    if (!regionSessionId || !productId || !caseCount || !weight || !marketId) {
-      return res.status(400).json({ error: 'Tüm alanlar zorunludur' })
-    }
-    if (Number(caseCount) < 1) {
-      return res.status(400).json({ error: 'Kasa adedi en az 1 olmalıdır' })
-    }
-    if (Number(weight) <= 0) {
-      return res.status(400).json({ error: 'Kilo sıfırdan büyük olmalıdır' })
-    }
-
-    const session = await prisma.regionSession.findUnique({
-      where: { id: Number(regionSessionId) },
-    })
-    if (!session || session.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'Aktif bölge oturumu bulunamadı' })
-    }
-
-    if (producerId) {
-      const err = await validateProducerForSession(producerId, session)
-      if (err) return res.status(400).json({ error: err })
-    }
-
-    const entry = await prisma.entry.create({
-      data: {
-        regionSessionId: Number(regionSessionId),
-        productId: Number(productId),
-        producerId: producerId ? Number(producerId) : null,
-        qualityId: qualityId ? Number(qualityId) : null,
-        caseCount: Number(caseCount),
-        weight: Number(weight),
-        marketId: Number(marketId),
-      },
-      include: {
-        product: true,
-        producer: true,
-        quality: true,
-        market: true,
-        regionSession: { include: { region: true } },
-      },
-    })
-
-    res.status(201).json(entry)
-  } catch (err) {
-    next(err)
-  }
-}
-
 // Entry sil: exit edilmemişse OK.
 export async function deleteEntry(req, res, next) {
   try {
     const id = Number(req.params.id)
     const entry = await prisma.entry.findUnique({
       where: { id },
-      include: { exitItems: { select: { id: true } } },
+      include: {
+        exitItems: { select: { id: true } },
+        transfers: { select: { id: true } },
+        returnRecord: { select: { id: true } },
+      },
     })
     if (!entry) return res.status(404).json({ error: 'Giriş bulunamadı' })
     if (entry.exitItems.length > 0) {
       return res.status(409).json({ error: 'Bu giriş irsaliye edilmiş, silinemez' })
+    }
+    // ReturnRecord.entryId SetNull: silinirse iade kaydı stokta karşılığı
+    // olmayan bir bayi kredisiyle ayakta kalıyordu
+    if (entry.returnRecord) {
+      return res.status(409).json({
+        error: 'Bu giriş bir iade kaydına ait — girişi değil, iade kaydını silin',
+      })
+    }
+    // Transfer FK'si Restrict: engellenmezse generic 400 dönüyordu
+    if (entry.transfers.length > 0) {
+      return res.status(409).json({
+        error: 'Bu giriş transfer edilmiş, silinemez — önce transferi geri alın',
+      })
     }
 
     await prisma.entry.delete({ where: { id } })

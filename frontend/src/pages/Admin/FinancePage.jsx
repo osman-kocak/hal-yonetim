@@ -159,6 +159,7 @@ function LedgerTab({ scope }) {
         <div className="flex items-center gap-2">
           <ExportButton
             title={`Finans - ${isMarket ? 'Bayi' : 'Üretici'} Hareketleri`}
+            resource="finance"
             filename={`finans-${isMarket ? 'bayi' : 'uretici'}-${new Date().toISOString().slice(0, 10)}`}
             prepare={() => ({
               columns: ['Tarih', 'Tip', isMarket ? 'Bayi' : 'Üretici', 'Tutar', 'Not', 'Yapan'],
