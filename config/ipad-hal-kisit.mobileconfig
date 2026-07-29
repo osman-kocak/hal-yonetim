@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hal iPad kısıt profili.
+
+  Apple Configurator (Mac) ile cihaz DENETİMLİ (supervised) moda alındıktan sonra
+  kurulur. Denetimli olmayan cihazda aşağıdaki anahtarların çoğu sessizce yok
+  sayılır — ekran görüntüsü engeli dahil. Yani "profil kuruldu" görmek yetmez,
+  cihazın Ayarlar > Genel > Hakkında ekranında "denetleniyor" yazmalı.
+
+  Kapsam: yalnızca hal'deki iş iPad'leri. Personelin kişisel cihazına kurulmaz.
+-->
+<plist version="1.0">
+<dict>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadIdentifier</key>
+  <string>cloud.mskocak.ipad.hal</string>
+  <key>PayloadUUID</key>
+  <string>CE174186-00AF-4004-8933-BFAE2795FF46</string>
+  <key>PayloadDisplayName</key>
+  <string>Hal iPad — Kısıtlar</string>
+  <key>PayloadOrganization</key>
+  <string>Biapp Yazilim</string>
+  <key>PayloadDescription</key>
+  <string>Hal yonetim sistemi is iPad'leri icin kisit ve kiosk profili</string>
+
+  <!-- Profili kullanıcı Ayarlar'dan silemesin. Silinebilir olursa tüm kısıtlar
+       üç dokunuşluk mesafede demektir. -->
+  <key>PayloadRemovalDisallowed</key>
+  <true/>
+
+  <key>PayloadContent</key>
+  <array>
+
+    <!-- ================= KISITLAR ================= -->
+    <dict>
+      <key>PayloadType</key>
+      <string>com.apple.applicationaccess</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadIdentifier</key>
+      <string>cloud.mskocak.ipad.hal.restrictions</string>
+      <key>PayloadUUID</key>
+      <string>FDDEA0E8-EF7C-45FF-B294-41BBC67586A2</string>
+      <key>PayloadDisplayName</key>
+      <string>Kisitlar</string>
+
+      <!-- Ekran görüntüsü VE ekran kaydı. Asıl istenen madde bu. -->
+      <key>allowScreenShot</key>
+      <false/>
+
+      <!-- App Store simgesi tamamen kaybolur, uygulama kurulamaz/silinemez -->
+      <key>allowUIAppInstallation</key>
+      <false/>
+      <key>allowAppInstallation</key>
+      <false/>
+      <key>allowAppRemoval</key>
+      <false/>
+
+      <!-- iCloud/mail dahil hiçbir hesap eklenemez veya çıkarılamaz -->
+      <key>allowAccountModification</key>
+      <false/>
+      <key>allowCloudDocumentSync</key>
+      <false/>
+      <key>allowCloudKeychainSync</key>
+      <false/>
+
+      <!-- Şifre değiştirme kapalı -->
+      <key>allowPasscodeModification</key>
+      <false/>
+
+      <!-- EN KRİTİK SIZINTI YOLU: ekran görüntüsünü kapatıp bunu açık bırakmak
+           kapıyı kilitleyip pencereyi açık unutmaktır. -->
+      <key>allowAirDrop</key>
+      <false/>
+
+      <!-- Kısıtlardan kaçış yolları -->
+      <key>allowEraseContentAndSettings</key>
+      <false/>
+      <key>allowUIConfigurationProfileInstallation</key>
+      <false/>
+      <key>allowHostPairing</key>
+      <false/>
+      <key>allowDeviceNameModification</key>
+      <false/>
+
+      <!-- Safari açık kalmalı: sistem web tabanlı, iPad ona Safari ile giriyor.
+           Hangi siteye girilebileceği aşağıdaki içerik filtresiyle sınırlanıyor. -->
+      <key>allowSafari</key>
+      <true/>
+      <key>safariAllowAutoFill</key>
+      <false/>
+
+      <!-- Kamera açık bırakıldı: iPad'in kendi kamerası kapatılırsa personel
+           belge/plaka fotoğrafı çekemez. Sadece iş sistemi için kullanılacaksa
+           bunu <false/> yap — o zaman personel kendi iPad'iyle de ekran
+           fotoğrafı çekemez. -->
+      <key>allowCamera</key>
+      <true/>
+    </dict>
+
+    <!-- ================= WEB İÇERİK FİLTRESİ ================= -->
+    <!-- Yalnızca hal sistemi açılabilir. Bugün konulan IP kilidiyle birlikte:
+         veri hal'in ağından çıkamıyor, cihaz da başka siteye gidemiyor. -->
+    <dict>
+      <key>PayloadType</key>
+      <string>com.apple.webcontent-filter</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadIdentifier</key>
+      <string>cloud.mskocak.ipad.hal.webfilter</string>
+      <key>PayloadUUID</key>
+      <string>47B40D8D-3E56-4D2A-A822-739310CB4858</string>
+      <key>PayloadDisplayName</key>
+      <string>Web Icerik Filtresi</string>
+      <key>FilterType</key>
+      <string>BuiltIn</string>
+      <key>AutoFilterEnabled</key>
+      <false/>
+      <key>PermittedURLs</key>
+      <array>
+        <string>https://mskocak.cloud</string>
+      </array>
+      <key>WhitelistedBookmarks</key>
+      <array>
+        <dict>
+          <key>URL</key>
+          <string>https://mskocak.cloud</string>
+          <key>Title</key>
+          <string>Hal Yonetim</string>
+        </dict>
+      </array>
+    </dict>
+
+    <!-- ================= ANA EKRAN KISAYOLU ================= -->
+    <!-- Web Clip: sistem ana ekranda uygulama gibi görünür, Safari çerçevesi
+         (adres çubuğu, sekmeler) gizlenir. Personel URL yazmakla uğraşmaz. -->
+    <dict>
+      <key>PayloadType</key>
+      <string>com.apple.webClip.managed</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadIdentifier</key>
+      <string>cloud.mskocak.ipad.hal.webclip</string>
+      <key>PayloadUUID</key>
+      <string>C1F2B69C-988A-4F3C-A82A-C78AA1C3FFEA</string>
+      <key>PayloadDisplayName</key>
+      <string>Hal Yonetim Kisayolu</string>
+      <key>URL</key>
+      <string>https://mskocak.cloud</string>
+      <key>Label</key>
+      <string>Hal Yonetim</string>
+      <key>IsRemovable</key>
+      <false/>
+      <key>FullScreen</key>
+      <true/>
+    </dict>
+
+  </array>
+</dict>
+</plist>
