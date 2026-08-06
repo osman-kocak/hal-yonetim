@@ -28,7 +28,7 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 🛡️ **Denetim kaydı (audit log)** — Hassas veri okuma ve export'ları kaydeder (`AuditLog`: kim, ne zaman, hangi kaynak, kaç satır). Admin panelinde `/admin/denetim` görüntüleyici; 200 satır üstü okuma anomali olarak işaretlenir. Export tarayıcıda üretildiği için istemci indirmeden önce niyet kaydı gönderir
 - 🔥 **Fire / imha raporu** — `99 ATILAN` pazarına yazılan mallar (`/admin/fire`). İki kaynak: bayiden iade → imha, ya da depodaki malın 99'a transferi
 - 🏷️ **Entry kaynak ayrımı** — `EntrySource` (`HARVEST` / `RETURN` / `DISCARD`). Raporlar yalnızca `HARVEST` sayar; iade ve imha entry'leri mal kabul hacmine karışmaz
-- 🔒 **Ağ kısıtı** — Prod'da `mskocak.cloud` yalnızca hal'in statik IP'sinden erişilebilir (OpenLiteSpeed vhost `accessControl`); SSH de aynı IP'ye kilitli
+- 🔒 **Rol bazlı ağ kısıtı** — Saha rolleri (`DEPO`, `OPERATOR`, `CASE_MANAGER`) yalnızca `HAL_ALLOWED_IPS`'teki hal hattından; `ADMIN` ve `ACCOUNTING` her yerden erişir. Kontrol `requireAuth` içinde, **her istekte** yapılır — hal içinde alınan token dışarı taşınırsa da çalışmaz. Prod'da `HAL_ALLOWED_IPS` tanımsızsa sunucu açılmaz. SSH ayrıca hal IP'sine kilitli
 - 💧 **Ekran filigranı** — Saha panellerinde (`/mal-kabul`, `/cikis`, `/depo`, `/kasaci`) kullanıcı adı + tarih/saat çapraz filigran. Ekran fotoğraflanırsa görüntü kimin oturumuna ait olduğunu taşır. Admin/muhasebe panellerinde görünmez; `pointer-events: none`, yazdırmada gizli
 
 ---
@@ -123,9 +123,15 @@ JWT_SECRET="gizli-anahtar-degistir"
 JWT_EXPIRES_IN="8h"
 PORT=3001
 ADMIN_INITIAL_PASSWORD="admin123"
+# Saha rollerinin (DEPO/OPERATOR/CASE_MANAGER) çalışabileceği IP'ler — virgülle ayrılır.
+# Boş bırakılırsa kısıt uygulanmaz (yalnızca geliştirme); prod'da zorunlu.
+HAL_ALLOWED_IPS="127.0.0.1,HAL_STATIK_IP"
 ```
 
 > ⚠️ **Üretimde** `JWT_SECRET` ve `ADMIN_INITIAL_PASSWORD` **mutlaka** değiştirilmeli.
+> `HAL_ALLOWED_IPS` prod'da tanımsızsa sunucu `FATAL` verip açılmaz — saha hesaplarının
+> sessizce her yerden erişilebilir hale gelmesini engeller. Hal'in statik IP'si değişirse
+> bu değer güncellenmeli (ADMIN her yerden girebildiği için sistem kilitlenmez).
 
 ---
 

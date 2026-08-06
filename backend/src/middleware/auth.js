@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken'
+import { networkAllows, NETWORK_DENIED_MESSAGE } from './network.js'
 
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization
@@ -7,6 +8,13 @@ export function requireAuth(req, res, next) {
   }
   try {
     req.user = jwt.verify(header.slice(7), process.env.JWT_SECRET)
+    // Ağ kısıtı her istekte kontrol edilir, sadece login'de değil: hal içinde
+    // alınan token dışarı çıkarıldığında da çalışmasın.
+    if (!networkAllows(req.user, req.ip)) {
+      return res
+        .status(403)
+        .json({ error: NETWORK_DENIED_MESSAGE, code: 'NETWORK_RESTRICTED' })
+    }
     next()
   } catch (err) {
     // Süresi dolmuş token da 401 olmalı: "kimliğini yeniden doğrula" demek.

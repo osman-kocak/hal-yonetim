@@ -2,6 +2,7 @@ import { prisma } from '../utils/prismaClient.js'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
 import { audit } from '../utils/audit.js'
+import { networkAllows, NETWORK_DENIED_MESSAGE } from '../middleware/network.js'
 
 const BCRYPT_ROUNDS = 10
 
@@ -21,6 +22,14 @@ export async function login(req, res, next) {
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) {
       return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' })
+    }
+
+    // Saha rolleri hal ağı dışından token bile alamasın (requireAuth zaten her
+    // istekte kontrol ediyor; burada da kesmek kullanıcıya doğru hatayı verir).
+    if (!networkAllows(user, req.ip)) {
+      return res
+        .status(403)
+        .json({ error: NETWORK_DENIED_MESSAGE, code: 'NETWORK_RESTRICTED' })
     }
 
     // Token ömrü: JWT_EXPIRES_IN ayarlıysa o süre, ayarlı DEĞİLSE süresiz (ömürlük — relogin gerekmez)

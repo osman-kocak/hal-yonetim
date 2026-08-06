@@ -4,11 +4,14 @@ import cors from 'cors'
 import { prisma } from './utils/prismaClient.js'
 import apiRouter from './routes/index.js'
 import { errorHandler } from './middleware/errorHandler.js'
+import { assertNetworkPolicy } from './middleware/network.js'
 
 if (!process.env.JWT_SECRET) {
   console.error('FATAL: JWT_SECRET ortam değişkeni tanımlanmamış')
   process.exit(1)
 }
+
+assertNetworkPolicy()
 
 const app = express()
 const PORT = process.env.PORT ?? 3001
