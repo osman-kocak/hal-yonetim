@@ -10,8 +10,11 @@ const fmt = (n) => new Intl.NumberFormat('tr-TR', {
 // Bayi özeti alanları. Sunucu bunları göndermezse (önbellekteki eski bundle ya
 // da eski bir payload) "—" basılır — 0 basmak "borcu yok" demek olurdu.
 // pdfGenerator.js aynı biçimi üretir, ikisi lockstep.
+//
+// "TL" yazılıyor, "₺" DEĞİL: PDF'in gömülü Arial'inde ₺ simgesi yok ve jsPDF onu
+// sessizce düşürüyor. Ekranda ₺ bırakılsa iki çıktı ayrışırdı.
 const num = (n) => (n === null || n === undefined ? '—' : new Intl.NumberFormat('tr-TR').format(Number(n)))
-const money = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} ₺`)
+const money = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} TL`)
 
 // App seviyesinde tek örnek durur (bkz. App.jsx). Ekranda görünmez; yalnızca
 // yazdırmada sayfayı kaplar — stiller index.css'teki @media print bloğunda.
@@ -76,10 +79,15 @@ export function IrsaliyeSheet({ exit }) {
               <div><strong>Pazar No:</strong> {exit.market?.no}</div>
               <div><strong>Pazar Adı:</strong> {exit.market?.name}</div>
               <div><strong>İrsaliye Kasa:</strong> {num(exit.trackedCases)}</div>
-              <div><strong>Toplam Kasa Bakiyesi:</strong> {num(exit.marketCaseBalance)}</div>
-              {/* Borç tek başına satırı kaplar: kırmızı rakamın gözden kaçmaması
-                  için yanına başka veri konmuyor. */}
-              <div className="print-debt print-info-wide">
+              {/* Bayinin ÜSTÜNDE duran bakiyeler kırmızı: ikisi de "geri
+                  beklenen" tutar — kasa ve para. Bu fişin kendi kasa sayısı
+                  (İrsaliye Kasa) siyah kalır, o bir borç değil teslimat. */}
+              <div className="print-red">
+                <strong>Toplam Kasa Bakiyesi:</strong> {num(exit.marketCaseBalance)}
+              </div>
+              {/* Borç tek başına satırı kaplar: rakamın gözden kaçmaması için
+                  yanına başka veri konmuyor. */}
+              <div className="print-red print-info-wide">
                 <strong>Toplam Borç:</strong> {money(exit.marketDebt)}
               </div>
             </div>

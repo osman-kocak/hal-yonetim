@@ -35,8 +35,12 @@ const qtyCell = (entry) => (isCountable(entry.unit)
 
 // Bayi özeti alanları — IrsaliyePrint.jsx'teki ikizleriyle lockstep.
 // Sunucu göndermezse "—": 0 basmak "borcu yok" demek olurdu.
+//
+// "TL" yazılıyor, "₺" DEĞİL: gömülü Arial'de Türk Lirası simgesi (U+20BA, fonta
+// 2012'de eklendi) yok ve jsPDF onu sessizce düşürüyor — çıktıda "18.500,75 "
+// kalıyordu. Tablo başlığı da "Birim Fiyat (TL)" diyor, ekranla da tutarlı.
 const num = (n) => (n === null || n === undefined ? '—' : new Intl.NumberFormat('tr-TR').format(Number(n)))
-const money = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} ₺`)
+const money = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} TL`)
 
 // targetWin: çağıran, tıklama anında senkron açılmış boş bir sekme verebilir.
 // iOS Safari `await`ten sonraki window.open()'ı popup sayıp engelliyor; hazır
@@ -100,12 +104,14 @@ export async function generateIrsaliye(exit, targetWin = null) {
     doc.text(`Pazar No: ${exit.market?.no ?? '—'}`, SIDE, infoY + 6)
     doc.text(`Pazar Adı: ${exit.market?.name ?? '—'}`, pageW / 2, infoY + 6)
 
-    // Bayi özeti — IrsaliyePrint.jsx ile aynı alanlar ve aynı sıra.
+    // Bayi özeti — IrsaliyePrint.jsx ile aynı alanlar, aynı sıra, aynı renkler.
+    // Bu fişin kendi kasa sayısı siyah (teslimat), bayinin üstünde duran
+    // bakiyeler kırmızı (geri beklenen kasa ve para).
     doc.text(`İrsaliye Kasa: ${num(exit.trackedCases)}`, SIDE, infoY + 12)
-    doc.text(`Toplam Kasa Bakiyesi: ${num(exit.marketCaseBalance)}`, pageW / 2, infoY + 12)
 
-    // Borç kırmızı ve tek başına satırda — rakam gözden kaçmasın.
     doc.setTextColor(180, 0, 0)
+    doc.text(`Toplam Kasa Bakiyesi: ${num(exit.marketCaseBalance)}`, pageW / 2, infoY + 12)
+    // Borç tek başına satırda — rakam gözden kaçmasın.
     doc.text(`Toplam Borç: ${money(exit.marketDebt)}`, SIDE, infoY + 18)
     doc.setTextColor(0, 0, 0)
 

@@ -162,10 +162,10 @@
 /* Borç satırı iki sütunu birden kaplar */
 .print-info-wide { grid-column: 1 / -1; }
 
-/* Bayi borcu kırmızı. print-color-adjust olmadan tarayıcılar "arka plan
-   grafiklerini yazdırma" ayarında rengi atıp siyah basıyor — yeşil footer ile
-   aynı sebep. */
-.print-debt {
+/* Bayinin üstünde duran bakiyeler (kasa + borç) kırmızı. print-color-adjust
+   olmadan tarayıcılar "arka plan grafiklerini yazdırma" ayarında rengi atıp
+   siyah basıyor — yeşil footer ile aynı sebep. */
+.print-red {
   color: #b40000;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
