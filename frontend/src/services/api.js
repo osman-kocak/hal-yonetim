@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { useConnectionStore } from '@/store/connectionStore'
 
 // Timeout ŞART: yoksa ölü keep-alive bağlantısında (mobil NAT bağlantıyı sessizce
 // düşürür) tarayıcı TCP retransmit'i bekler — istek ~2 dk asılı kalır, sonra
@@ -32,14 +33,31 @@ export function errorMessage(err, fallback = 'Bir hata oluştu') {
   return err?.response?.data?.error ?? fallback
 }
 
+// Ağ hatasında kaç kez yeniden denensin. Tek deneme haldeki kısa kesintilerde
+// yetmiyordu (router yeniden bağlanırken 2-3 sn pencere oluyor); üstel bekleme
+// ile toplam ~2 sn ek gecikme karşılığında istek çoğu kesintiyi atlatıyor.
+const MAX_RETRIES = 3
+const RETRY_DELAYS_MS = [300, 800, 1500]
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
 http.interceptors.response.use(
-  (r) => r,
-  (err) => {
-    // Ağ hatasında bir kez otomatik retry (sadece bir kez — sonsuz döngü olmasın)
+  (r) => {
+    // Başarılı istek = bağlantı iyi. Kesinti açıksa burada kapanır ve süresi loglanır.
+    useConnectionStore.getState().reportSuccess()
+    return r
+  },
+  async (err) => {
+    // Ağ hatasında üstel beklemeli retry (sayaçlı — sonsuz döngü olmasın)
     const config = err?.config
-    if (isNetworkError(err) && config && !config.__retried) {
-      config.__retried = true
-      return http(config)
+    if (isNetworkError(err) && config) {
+      config.__retryCount = (config.__retryCount ?? 0) + 1
+      if (config.__retryCount <= MAX_RETRIES) {
+        await sleep(RETRY_DELAYS_MS[config.__retryCount - 1] ?? 1500)
+        return http(config)
+      }
+      // Denemeler tükendi → gerçek kesinti. Banner açılır, süre ölçülmeye başlar.
+      useConnectionStore.getState().reportFailure()
     }
 
     // 401 = kimlik doğrulanamadı (token yok/geçersiz/süresi dolmuş) → oturumu temizle.
@@ -57,6 +75,27 @@ http.interceptors.response.use(
 )
 
 const unwrap = (promise) => promise.then((r) => r.data)
+
+// Sayfalanan endpoint'ler { data, total, page, limit, hasMore } döner. Sadece
+// listeye ihtiyaç duyan çağıranlar bunu kullanır; düz dizi dönen eski biçim de
+// kabul edilir — deploy sırasında frontend/backend sürüm farkında ekran boş
+// kalmasın diye (tarayıcı cache'i eski bundle'ı tutabiliyor).
+export const asList = (res) => (Array.isArray(res) ? res : (res?.data ?? []))
+
+// Export için: sayfalanan bir endpoint'in TÜM sayfalarını çeker. Pagination
+// eklendikten sonra "Çıktı Al" ekrandaki 50 satırı indiriyordu — muhasebe için
+// sessiz veri kaybı. maxRows tarayıcıyı kilitlememek için üst sınır.
+export async function fetchAllPages(fn, params = {}, { pageSize = 200, maxRows = 20000 } = {}) {
+  const out = []
+  for (let page = 1; ; page++) {
+    const res = await fn({ ...params, page, limit: pageSize })
+    const rows = asList(res)
+    out.push(...rows)
+    const more = !Array.isArray(res) && res?.hasMore
+    if (!more || !rows.length || out.length >= maxRows) break
+  }
+  return out
+}
 
 export const api = {
   // Region (bölge oturumu)
@@ -79,9 +118,22 @@ export const api = {
   // Çıkış ekranı için: bayi listesi + bekleyen kasa sayısı (yetki gerektirir)
   getMarketsWithPending: () => unwrap(http.get('/markets', { params: { withPending: 1 } })),
   getMarketEntries: (marketId) => unwrap(http.get(`/markets/${marketId}/entries`)),
+  // Çıkış ekranından kaldırılıp depoya gönderilenler (gri satırlar)
+  getRemovedEntries: (marketId) => unwrap(http.get(`/markets/${marketId}/removed-entries`)),
 
   // Exit
   createExit: (marketId, entryIds) => unwrap(http.post('/exit', { marketId, entryIds })),
+  // toMarketId verilmezse kalem DEPO'ya döner (satırdaki X butonu); verilirse
+  // doğrudan o pazara aktarılır (yanlış pazar düzeltmesi).
+  // quantity verilmezse kalemin TAMAMI taşınır; verilirse kalem bölünür
+  // (kasada kasa adedi, bağ/adette bağ sayısı).
+  removeEntryToDepo: (entryId, toMarketId, quantity) =>
+    unwrap(http.post('/exit/remove-entry', {
+      entryId,
+      ...(toMarketId != null && { toMarketId }),
+      ...(quantity != null && { quantity }),
+    })),
+  undoRemoveEntry: (transferId) => unwrap(http.post(`/exit/remove-entry/${transferId}/undo`)),
 
   // Admin Auth
   adminLogin: (username, password) => unwrap(http.post('/admin/auth/login', { username, password })),
@@ -91,7 +143,19 @@ export const api = {
   getDepoEntries: () => unwrap(http.get('/depo/entries')),
   createGroupedTransfer: (data) => unwrap(http.post('/depo/transfer-grouped', data)),
   createDepoReturn: (data) => unwrap(http.post('/depo/return', data)),
+  // Tek bayi, çok satır — backend hepsini TEK transaction'da yazar, biri
+  // patlarsa hiçbiri yazılmaz (cari hesaba yarım iade işlenmesin).
+  createDepoReturnBatch: (data) => unwrap(http.post('/depo/return/batch', data)),
+  // Bayiye son 7 günde ne gönderildi / ne iade alındı — iade ekranı yanlış
+  // ürün seçimini burada yakalıyor.
+  getMarketBalance: (marketId) => unwrap(http.get(`/depo/market-balance/${marketId}`)),
+  // Admin/muhasebe depo görünümü — /api/depo ACCOUNTING'e kapalı olduğu için ayrı yol
+  getAdminDepoEntries: () => unwrap(http.get('/admin/depo/entries')),
+  createManualDepoEntry: (data) => unwrap(http.post('/admin/depo/entry', data)),
   listDepoReturns: (params) => unwrap(http.get('/depo/returns', { params })),
+  // Saha iade ekranındaki "son iadeler" kutusu — düz dizi bekler
+  listRecentReturns: (limit = 10) =>
+    unwrap(http.get('/depo/returns', { params: { limit } })).then(asList),
   deleteDepoReturn: (id) => unwrap(http.delete(`/depo/returns/${id}`)),
   getAdminTransfers: (params) => unwrap(http.get('/admin/transfers', { params })),
 
@@ -100,6 +164,7 @@ export const api = {
   // getCaseMovements ile ÇAKIŞIYORDU (sonraki anahtar kazanıyor, ikisi de admin
   // rotasına gidiyordu → kasacı 403 alıyordu). Kaldırıldı.
   getCaseMarketBalances: () => unwrap(http.get('/cases/balances/markets')),
+  getCaseRegionBalances: () => unwrap(http.get('/cases/balances/regions')),
   createCaseMovement: (data) => unwrap(http.post('/cases/movements', data)),
 
   // Admin CRUD
@@ -132,6 +197,8 @@ export const api = {
   getExitHistory: (params) => unwrap(http.get('/admin/history/exits', { params })),
   getEntryHistory: (params) => unwrap(http.get('/admin/history/entries', { params })),
   updateExit: (id, data) => unwrap(http.put(`/admin/exits/${id}`, data)),
+  // Silinen irsaliyenin malı depoya döner (bkz. exitController.returnEntriesToDepo)
+  deleteExit: (id, data) => unwrap(http.delete(`/admin/exits/${id}`, { data })),
 
   // Users (operatörler)
   getAdminUsers: () => unwrap(http.get('/admin/users')),
@@ -169,6 +236,7 @@ export const api = {
   createAdminCaseMovement: (data) => unwrap(http.post('/admin/case-movements', data)),
   deleteCaseMovement: (id) => unwrap(http.delete(`/admin/case-movements/${id}`)),
   getMarketCaseBalances: () => unwrap(http.get('/admin/case-balances/markets')),
+  getRegionCaseBalances: () => unwrap(http.get('/admin/case-balances/regions')),
 
   // Reports
   getDailyReport: (date) => unwrap(http.get('/admin/reports/daily', { params: { date } })),

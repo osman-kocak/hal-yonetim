@@ -1,7 +1,10 @@
 import { prisma } from '../utils/prismaClient.js'
 import { getPriceMap } from './priceController.js'
-import { isSpecialMarket, DEPO_NO } from '../utils/markets.js'
+import { isSpecialMarket, findDepoMarket, DEPO_NO } from '../utils/markets.js'
+import { sumTrackedCases } from '../utils/cases.js'
+import { priceOf } from '../utils/prices.js'
 import { toPriceDate } from '../utils/date.js'
+import { marketSummary } from '../utils/marketSummary.js'
 
 export async function createExit(req, res, next) {
   try {
@@ -56,8 +59,7 @@ export async function createExit(req, res, next) {
       })
     }
     const entryPriceMap = new Map(targetEntries.map((e) => {
-      const key = `${e.productId}_${e.qualityId}`
-      return [e.id, priceMap[key] ?? null]
+      return [e.id, priceOf(priceMap, e.productId, e.qualityId)]
     }))
 
     const exit = await prisma.$transaction(async (tx) => {
@@ -88,7 +90,9 @@ export async function createExit(req, res, next) {
         },
       })
 
-      const totalCases = created.items.reduce((s, i) => s + i.entry.caseCount, 0)
+      // Siyah/karton kasadaki ve bağ/adetli kalemler kasa borcu doğurmaz —
+      // bkz. utils/cases.js. Toplam 0 çıkarsa hiç hareket yazılmaz.
+      const totalCases = sumTrackedCases(created.items, (i) => i.entry)
       if (totalCases > 0) {
         await tx.caseMovement.create({
           data: {
@@ -105,8 +109,7 @@ export async function createExit(req, res, next) {
 
       // Finansal cari hesap: irsaliye → bayi borcu (sadece fiyat varsa)
       const invoiceTotal = created.items.reduce((sum, item) => {
-        const key = `${item.entry.productId}_${item.entry.qualityId}`
-        const price = priceMap[key]
+        const price = priceOf(priceMap, item.entry.productId, item.entry.qualityId)
         return price != null ? sum + price * item.entry.weight : sum
       }, 0)
       if (invoiceTotal > 0) {
@@ -126,14 +129,30 @@ export async function createExit(req, res, next) {
     })
 
     const itemsWithPrice = exit.items.map((item) => {
-      const key = `${item.entry.productId}_${item.entry.qualityId}`
-      const pricePerKg = item.pricePerKg != null ? item.pricePerKg : (priceMap[key] ?? null)
+      const pricePerKg = item.pricePerKg != null ? item.pricePerKg : priceOf(priceMap, item.entry.productId, item.entry.qualityId)
       const totalPrice = pricePerKg !== null ? pricePerKg * item.entry.weight : null
       return { ...item, pricePerKg, totalPrice }
     })
 
     const missingPrices = itemsWithPrice.filter((i) => i.pricePerKg === null).length
-    res.status(201).json({ ...exit, items: itemsWithPrice, missingPrices })
+
+    // İrsaliye başlığı için bayi özeti. Transaction'dan SONRA okunuyor: bu
+    // çıkışın kasa hareketi ve borcu bakiyeye zaten işlendi, yani fişte görünen
+    // rakam "bu teslimat dahil" güncel durumdur.
+    //
+    // Yazdırma anında çekilemez — printIrsaliye() senkron olmak zorunda (iOS
+    // yazdırma izni await'ten sonra düşüyor, bkz. store/printStore.js), o yüzden
+    // veri fişin kendi payload'ında gitmeli.
+    const summary = await marketSummary(exit.marketId)
+
+    res.status(201).json({
+      ...exit,
+      items: itemsWithPrice,
+      missingPrices,
+      trackedCases: sumTrackedCases(exit.items, (i) => i.entry),
+      marketCaseBalance: summary.caseBalance,
+      marketDebt: summary.debt,
+    })
   } catch (err) {
     next(err)
   }
@@ -178,6 +197,15 @@ export async function updateExit(req, res, next) {
     })
     const lockedPrices = new Map(existingItems.map((i) => [i.entryId, i.pricePerKg]))
 
+    // İrsaliyeden çıkarılan kalemlerin malı depoya döner — pazarda bırakılırsa
+    // çıkış ekranında sebebi belirsiz bekleyen kalem olarak yeniden belirir
+    const keptIds = new Set(entryIds.map(Number))
+    const removedEntryIds = existingItems.map((i) => i.entryId).filter((eid) => !keptIds.has(eid))
+    const depo = removedEntryIds.length ? await findDepoMarket() : null
+    if (removedEntryIds.length && !depo) {
+      return res.status(404).json({ error: 'DEPO market kaydı bulunamadı' })
+    }
+
     // entry'lerin product/quality bilgisini al ki YENİ kalemlere fiyat atanabilsin
     const targetEntries = await prisma.entry.findMany({
       where: { id: { in: entryIds.map(Number) } },
@@ -185,10 +213,10 @@ export async function updateExit(req, res, next) {
     })
     const entryPriceMap = new Map(targetEntries.map((e) => {
       if (lockedPrices.has(e.id)) return [e.id, lockedPrices.get(e.id)]
-      const key = `${e.productId}_${e.qualityId}`
-      return [e.id, priceMap[key] ?? null]
+      return [e.id, priceOf(priceMap, e.productId, e.qualityId)]
     }))
 
+    let returnedToDepo = 0
     const exit = await prisma.$transaction(async (tx) => {
       await tx.exitItem.deleteMany({ where: { exitId: Number(id) } })
       const updated = await tx.exit.update({
@@ -220,8 +248,13 @@ export async function updateExit(req, res, next) {
         },
       })
 
-      // Kasa hareketi senkronize et
-      const totalCases = updated.items.reduce((s, i) => s + i.entry.caseCount, 0)
+      // Kasa hareketi senkronize et — yalnızca siyah/karton kasa kalemleri
+      // sayılmaz (birim artık belirleyici değil, bkz. utils/cases.js).
+      // DİKKAT: eski bir irsaliye düzenlenirse toplam BURADA yeniden hesaplanır.
+      // 2026-08-13 öncesi kesilmiş, bağ kalemi içeren irsaliyelerde o kalemlerin
+      // kasası eskiden sayılmıyordu; düzenleme sırasında bayi kasa borcu bu
+      // yüzden artabilir. Beklenen davranış — kural değişti, sayı düzeliyor.
+      const totalCases = sumTrackedCases(updated.items, (i) => i.entry)
       const existingCase = await tx.caseMovement.findUnique({ where: { exitId: updated.id } })
       if (totalCases > 0) {
         if (existingCase) {
@@ -248,8 +281,7 @@ export async function updateExit(req, res, next) {
 
       // Finansal cari hesap senkronize
       const invoiceTotal = updated.items.reduce((sum, item) => {
-        const key = `${item.entry.productId}_${item.entry.qualityId}`
-        const price = priceMap[key]
+        const price = priceOf(priceMap, item.entry.productId, item.entry.qualityId)
         return price != null ? sum + price * item.entry.weight : sum
       }, 0)
       const roundedInvoice = Math.round(invoiceTotal * 100) / 100
@@ -276,29 +308,97 @@ export async function updateExit(req, res, next) {
       } else if (existingLedger) {
         await tx.ledgerEntry.delete({ where: { exitId: updated.id } })
       }
+
+      returnedToDepo = await returnEntriesToDepo(tx, {
+        entryIds: removedEntryIds,
+        fromMarketId: updated.marketId,
+        depoId: depo?.id,
+        note: `İrsaliye #${updated.id} düzenlendi — kalem çıkarıldı, mal depoya döndü`,
+        createdBy: editedBy,
+      })
       return updated
     })
 
     const itemsWithPrice = exit.items.map((item) => {
-      const key = `${item.entry.productId}_${item.entry.qualityId}`
-      const pricePerKg = item.pricePerKg != null ? item.pricePerKg : (priceMap[key] ?? null)
+      const pricePerKg = item.pricePerKg != null ? item.pricePerKg : priceOf(priceMap, item.entry.productId, item.entry.qualityId)
       const totalPrice = pricePerKg !== null ? pricePerKg * item.entry.weight : null
       return { ...item, pricePerKg, totalPrice }
     })
 
-    res.json({ ...exit, items: itemsWithPrice })
+    // Düzenlenen fiş de yeniden basılıyor — başlık aynı özeti taşımalı.
+    // Kasa/borç hareketleri transaction içinde senkronlandı, bu okuma güncel.
+    const summary = await marketSummary(exit.marketId)
+
+    res.json({
+      ...exit,
+      items: itemsWithPrice,
+      returnedToDepo,
+      trackedCases: sumTrackedCases(exit.items, (i) => i.entry),
+      marketCaseBalance: summary.caseBalance,
+      marketDebt: summary.debt,
+    })
   } catch (err) {
     next(err)
   }
 }
 
-// İrsaliye sil — Cascade ile ExitItem + CaseMovement + LedgerEntry düşer
+// Silinen/çıkarılan kalemlerin malını depoya döndürür ve iz olarak Transfer yazar.
+// Sadece Exit'i silmek yetmiyordu: Entry pazarda kalıyor, çıkış ekranında sebebi
+// belirsiz bir "bekleyen kalem" olarak yeniden beliriyor ve depoya dönmesi için
+// operatörün elle "depoya al" demesi gerekiyordu.
+async function returnEntriesToDepo(tx, { entryIds, fromMarketId, depoId, note, createdBy }) {
+  if (!entryIds.length || fromMarketId === depoId) return 0
+  // Yalnızca hâlâ o pazarda duran kalemler taşınır — arada başka bir işlemle
+  // taşınmış olanlara karşılıksız Transfer logu düşmesin.
+  const movable = await tx.entry.findMany({
+    where: { id: { in: entryIds }, marketId: fromMarketId },
+    select: { id: true },
+  })
+  if (!movable.length) return 0
+  const ids = movable.map((e) => e.id)
+  await tx.entry.updateMany({ where: { id: { in: ids } }, data: { marketId: depoId } })
+  await tx.transfer.createMany({
+    data: ids.map((entryId) => ({
+      entryId,
+      fromMarketId,
+      toMarketId: depoId,
+      note,
+      createdBy,
+    })),
+  })
+  return ids.length
+}
+
+// İrsaliye sil — Cascade ile ExitItem + CaseMovement + LedgerEntry düşer,
+// kalemlerin malı depoya döner
 export async function deleteExit(req, res, next) {
   try {
     const id = Number(req.params.id)
-    const exit = await prisma.exit.findUnique({ where: { id } })
+    const exit = await prisma.exit.findUnique({
+      where: { id },
+      include: { items: { select: { entryId: true } } },
+    })
     if (!exit) return res.status(404).json({ error: 'İrsaliye bulunamadı' })
-    await prisma.exit.delete({ where: { id } })
-    res.status(204).end()
+
+    const depo = await findDepoMarket()
+    if (!depo) return res.status(404).json({ error: 'DEPO market kaydı bulunamadı' })
+
+    const entryIds = exit.items.map((i) => i.entryId)
+    // Admin auth tek şifre — req.user gerçek kişiyi göstermiyor. Silen kişi
+    // modalda seçiliyor, izde o görünmeli (updateExit'teki editedBy ile aynı mantık).
+    const createdBy = req.body?.deletedBy || req.user?.name || 'Admin'
+
+    const returned = await prisma.$transaction(async (tx) => {
+      await tx.exit.delete({ where: { id } })
+      return returnEntriesToDepo(tx, {
+        entryIds,
+        fromMarketId: exit.marketId,
+        depoId: depo.id,
+        note: `İrsaliye #${id} silindi — mal depoya döndü`,
+        createdBy,
+      })
+    })
+
+    res.json({ deleted: id, returnedToDepo: returned })
   } catch (err) { next(err) }
 }

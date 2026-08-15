@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAppStore } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
@@ -10,11 +11,12 @@ import { RecentEntriesList } from './RecentEntriesList'
 import { Clock } from '@/components/ui/Clock'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
-import { CheckCircle, MapPin, User } from 'lucide-react'
-import { formatWeight } from '@/utils/formatters'
+import { ArrowLeft, CheckCircle, MapPin, User } from 'lucide-react'
+import { formatWeight, sumQty } from '@/utils/formatters'
 
 export function EntryPage() {
   const { step, activeSession, selectedProducer, completeSession } = useAppStore()
+  const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
   const [completing, setCompleting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -26,14 +28,22 @@ export function EntryPage() {
     setConfirmOpen(true)
     try {
       const list = (await api.getSessionEntries(activeSession.id)) ?? []
+      // Bağ/adet kayıtlarında weight SAYI tutuyor — kilo toplamına katılmamalı,
+      // yoksa "Toplam kilo" şişer. Üçü ayrı kova (bkz. utils/formatters → sumQty).
+      const qty = sumQty(list)
       setSummary({
         entryCount: list.length,
         totalCases: list.reduce((s, e) => s + (e.caseCount ?? 0), 0),
-        totalWeight: list.reduce((s, e) => s + (e.weight ?? 0), 0),
+        totalWeight: qty.weight,
+        totalBunches: qty.bunches,
+        totalPieces: qty.pieces,
         producerCount: new Set(list.map((e) => e.producerId).filter(Boolean)).size,
       })
     } catch {
-      setSummary({ entryCount: '?', totalCases: '?', totalWeight: 0, producerCount: '?' })
+      setSummary({
+        entryCount: '?', totalCases: '?', totalWeight: 0,
+        totalBunches: 0, totalPieces: 0, producerCount: '?',
+      })
     }
   }
 
@@ -57,6 +67,14 @@ export function EntryPage() {
       {/* Header */}
       <header className="bg-white border-b border-border px-3 sm:px-4 py-3 sm:py-4 flex flex-wrap items-center gap-3 sm:gap-4">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 order-1">
+          {/* Açık bölge oturumu sunucuda kalır — geri dönmek oturumu kapatmaz */}
+          <button
+            onClick={() => navigate('/')}
+            className="p-2 rounded-lg hover:bg-gray-100 text-text-muted shrink-0"
+            title="Ana sayfaya dön"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <span className="text-xl sm:text-2xl shrink-0">🌿</span>
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-bold text-text-primary leading-none">MAL KABUL</h1>
@@ -121,6 +139,12 @@ export function EntryPage() {
                   <p className="text-lg font-bold text-text-primary">
                     {summary ? formatWeight(summary.totalWeight) : '—'}
                   </p>
+                  {summary?.totalBunches > 0 && (
+                    <p className="text-xs text-text-muted">+ {summary.totalBunches} bağ</p>
+                  )}
+                  {summary?.totalPieces > 0 && (
+                    <p className="text-xs text-text-muted">+ {summary.totalPieces} adet</p>
+                  )}
                 </div>
               </div>
               <p className="text-xs text-text-muted">

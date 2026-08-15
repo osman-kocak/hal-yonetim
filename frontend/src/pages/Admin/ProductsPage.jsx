@@ -3,6 +3,10 @@ import { api } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { CrudPage } from './CrudPage'
 import { getGroupIcon } from '@/utils/productGroups'
+import { isCountable, unitLabel } from '@/utils/formatters'
+
+// Liste/export'ta gösterilen tam birim adı — rozet kısa etiketi kullanır.
+const UNIT_NAMES = { CASE: 'Kilo', BUNCH: 'Bağ', PIECE: 'Adet' }
 
 export function ProductsPage() {
   const [records, setRecords] = useState([])
@@ -19,8 +23,13 @@ export function ProductsPage() {
     [records],
   )
 
-  // Boş "Ana ürün" → null (tekil ürün)
-  const clean = (form) => ({ ...form, groupName: (form.groupName ?? '').trim() || null })
+  // Boş "Ana ürün" → null (tekil ürün). Birim seçilmediyse kasa (varsayılan) —
+  // select'te "Seçin…" bırakılırsa backend geçersiz enum diye 400 dönerdi.
+  const clean = (form) => ({
+    ...form,
+    groupName: (form.groupName ?? '').trim() || null,
+    unit: form.unit || 'CASE',
+  })
 
   async function onCreate(form) {
     await api.createProduct(clean(form))
@@ -61,6 +70,18 @@ export function ProductsPage() {
           help: 'Boş bırakırsan tekil ürün olur. Var olan bir ana ürünü seç ya da yeni ad yaz — aynı ana ürünlü ürünler giriş ekranında altında gruplanır.',
         },
         {
+          name: 'unit',
+          label: 'Satış birimi',
+          type: 'select',
+          optional: true,
+          options: [
+            { value: 'CASE', label: 'Kilo (kg ile satılır)' },
+            { value: 'BUNCH', label: 'Bağ' },
+            { value: 'PIECE', label: 'Adet' },
+          ],
+          help: 'Bağ/Adet seçilirse mal kabulde tartı sorulmaz, miktar doğrudan bağ/adet sayısı olarak girilir ve fiyat ₺/bağ ya da ₺/adet olur. Kasa üç birimde de sorulur ve kasa hesabına girer — hariç tutmak için mal kabulde siyah kasa işaretle. Boş bırakılırsa Kilo kabul edilir. Değiştirdiğinde geçmiş kayıtlar eski birimiyle kalır; depoda bekleyen girişler varsa önce onları sevk et.',
+        },
+        {
           name: 'icon',
           label: 'Emoji / İkon (opsiyonel)',
           placeholder: '🍊',
@@ -75,9 +96,19 @@ export function ProductsPage() {
             <span className="flex items-center gap-2">
               <span className="text-xl">{r.icon || '📦'}</span>
               <span>{r.name}</span>
+              {isCountable(r.unit) && (
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-primary-light text-primary-dark">
+                  {unitLabel(r.unit).toUpperCase()}
+                </span>
+              )}
             </span>
           ),
           exportValue: (r) => r.name,
+        },
+        {
+          label: 'Birim',
+          render: (r) => UNIT_NAMES[r.unit] ?? UNIT_NAMES.CASE,
+          exportValue: (r) => UNIT_NAMES[r.unit] ?? UNIT_NAMES.CASE,
         },
       ]}
       onCreate={onCreate}

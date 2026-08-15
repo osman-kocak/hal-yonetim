@@ -3,7 +3,7 @@ import { api, errorMessage } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ExportButton } from '@/components/ui/ExportButton'
-import { formatWeight } from '@/utils/formatters'
+import { formatWeight, formatQty, isCountable, unitLabel } from '@/utils/formatters'
 import { Trash } from 'lucide-react'
 
 const fmtTL = (n) => new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(Number(n)))
@@ -48,12 +48,13 @@ export function FirePage() {
           title="Fire Raporu"
           filename={`fire-${dateFrom || 'tum'}-${dateTo || 'zaman'}`}
           prepare={() => ({
-            columns: ['Ürün', 'Kayıt', 'Kasa', 'Ağırlık (kg)', 'Tutar (TL)'],
+            columns: ['Ürün', 'Kayıt', 'Kasa', 'Miktar', 'Birim', 'Tutar (TL)'],
             rows: items.map((i) => [
               i.product?.name ?? '—',
               i.entryCount,
               i.totalCases,
-              Number(i.totalWeight).toFixed(2),
+              Number(i.totalWeight).toFixed(isCountable(i.unit) ? 0 : 2),
+              unitLabel(i.unit),
               Number(i.amount).toFixed(2),
             ]),
           })}
@@ -61,9 +62,17 @@ export function FirePage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+      {/* kg / bağ / adet ayrı kartlar — toplanamaz eksenler. Bağ ve adet kartı
+          yalnızca o birimde fire varsa görünür. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
         <SummaryCard label="Toplam Kasa" value={totals.cases} color="text-error" />
         <SummaryCard label="Toplam Ağırlık" value={formatWeight(totals.weight)} color="text-error" />
+        {totals.bunches > 0 && (
+          <SummaryCard label="Toplam Bağ" value={totals.bunches} color="text-error" />
+        )}
+        {totals.pieces > 0 && (
+          <SummaryCard label="Toplam Adet" value={totals.pieces} color="text-error" />
+        )}
         <SummaryCard label="Bayi Alacağından Düşen" value={`₺${fmtTL(totals.amount)}`} />
       </div>
 
@@ -111,7 +120,7 @@ export function FirePage() {
                   <th className="p-3 text-left">Ürün</th>
                   <th className="p-3 text-right">Kayıt</th>
                   <th className="p-3 text-right">Kasa</th>
-                  <th className="p-3 text-right">Ağırlık</th>
+                  <th className="p-3 text-right">Miktar</th>
                   <th className="p-3 text-right">Tutar</th>
                 </tr>
               </thead>
@@ -125,8 +134,10 @@ export function FirePage() {
                       {i.product?.name ?? '—'}
                     </td>
                     <td className="p-3 text-right tabular-nums text-text-muted">{i.entryCount}</td>
-                    <td className="p-3 text-right tabular-nums font-semibold">{i.totalCases}</td>
-                    <td className="p-3 text-right tabular-nums">{formatWeight(i.totalWeight)}</td>
+                    <td className="p-3 text-right tabular-nums font-semibold">
+                      {i.totalCases}
+                    </td>
+                    <td className="p-3 text-right tabular-nums">{formatQty(i.totalWeight, i.unit)}</td>
                     <td className="p-3 text-right tabular-nums text-blue-700 font-semibold">
                       {i.amount > 0 ? `−₺${fmtTL(i.amount)}` : '—'}
                     </td>

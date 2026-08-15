@@ -187,6 +187,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
   const [marketQuery, setMarketQuery] = useState('')
   const [marketId, setMarketId] = useState(null)
   const [weak, setWeak] = useState(false)
+  const [disposableCase, setDisposableCase] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const addToast = useToastStore((s) => s.addToast)
@@ -198,6 +199,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
       setMarketId(entry.marketId)
       setMarketQuery(entry.market ? (entry.market.no === 0 ? 'Depo' : String(entry.market.no)) : '')
       setWeak(!!entry.weak)
+      setDisposableCase(!!entry.disposableCase)
       setError('')
     }
   }, [entry])
@@ -216,6 +218,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
         weight: w,
         marketId,
         weak,
+        disposableCase,
       })
       addToast('Giriş güncellendi ✓')
       onSaved(updated)
@@ -277,6 +280,19 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
               className="w-4 h-4 rounded accent-error"
             />
             <span className="text-sm text-text-secondary">Zayıf mal olarak işaretle</span>
+          </label>
+
+          {/* Bayrak değişince bölge kasa düşümü de düzeltilir (bkz. updateEntry) */}
+          <label className="flex items-center gap-2 cursor-pointer -mt-2">
+            <input
+              type="checkbox"
+              checked={disposableCase}
+              onChange={(e) => setDisposableCase(e.target.checked)}
+              className="w-4 h-4 rounded accent-gray-700"
+            />
+            <span className="text-sm text-text-secondary">
+              Siyah/karton kasa <span className="text-text-muted">— kasa hesabına girmez</span>
+            </span>
           </label>
 
           {error && <p className="text-sm text-error">{error}</p>}

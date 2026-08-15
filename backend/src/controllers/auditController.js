@@ -1,6 +1,7 @@
 import { prisma } from '../utils/prismaClient.js'
 import { audit } from '../utils/audit.js'
 import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
+import { parsePagination, paginated } from '../utils/pagination.js'
 
 // İzin verilen export kaynakları — istemci serbest metin göndermesin
 const EXPORT_RESOURCES = new Set([
@@ -39,12 +40,18 @@ export async function listAuditLogs(req, res, next) {
       if (dateFrom) where.createdAt.gte = startOfLocalDay(dateFrom)
       if (dateTo) where.createdAt.lte = endOfLocalDay(dateTo)
     }
-    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200))
-    const logs = await prisma.auditLog.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    })
-    res.json(logs)
+    // Eskiden sabit take:200 vardı — 201. kayıt görünmüyordu, "eski log yok"
+    // sanılıyordu. Artık sayfalanıyor.
+    const pg = parsePagination(req)
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: pg.skip,
+        take: pg.limit,
+      }),
+      prisma.auditLog.count({ where }),
+    ])
+    res.json(paginated(logs, total, pg))
   } catch (err) { next(err) }
 }

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { cn } from '@/utils/cn'
+import { isCountable } from '@/utils/formatters'
 import {
   ResponsiveContainer,
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -84,12 +86,23 @@ export function DashboardPage() {
         <>
           {/* KPI grid */}
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
-            <Kpi label="Giriş" value={formatNum(data.overview?.kpi.entries)} icon={Package} color="primary" />
-            <Kpi label="Kasa" value={formatNum(data.overview?.kpi.cases)} icon={Package} color="primary" />
-            <Kpi label="Ağırlık" value={formatNum(data.overview?.kpi.weight, 1)} unit="kg" icon={Scale} color="primary" />
-            <Kpi label="İrsaliye" value={formatNum(data.overview?.kpi.exits)} icon={FileText} color="primary" />
-            <Kpi label="Ciro" value={formatTL(data.overview?.kpi.invoiced)} icon={Wallet} color="green" />
-            <Kpi label="Zayıf Mal" value={`%${formatNum(data.overview?.kpi.weakRate, 1)}`} icon={AlertTriangle} color={data.overview?.kpi.weakRate > 10 ? 'red' : 'amber'} />
+            {/* Her kart kaynağı olan detay sayfasına açılır. Giriş/Ağırlık/Zayıf
+                Mal → giriş kayıtları, İrsaliye → irsaliyeler, Kasa → kasa takip,
+                Ciro → finans. */}
+            <Kpi label="Giriş" value={formatNum(data.overview?.kpi.entries)} icon={Package} color="primary" to="/admin/takip?tab=girisler" />
+            <Kpi label="Kasa" value={formatNum(data.overview?.kpi.cases)} icon={Package} color="primary" to="/admin/kasalar" />
+            {/* Ağırlık yalnızca kilo ürünlerinin kilosu; bağ ve adet ayrı
+                kartlarda (backend splitByUnit ile üçünü ayırıyor). */}
+            <Kpi label="Ağırlık" value={formatNum(data.overview?.kpi.weight, 1)} unit="kg" icon={Scale} color="primary" to="/admin/takip?tab=girisler" />
+            {data.overview?.kpi.bunches > 0 && (
+              <Kpi label="Bağ" value={formatNum(data.overview.kpi.bunches)} icon={Package} color="primary" to="/admin/takip?tab=girisler" />
+            )}
+            {data.overview?.kpi.pieces > 0 && (
+              <Kpi label="Adet" value={formatNum(data.overview.kpi.pieces)} icon={Package} color="primary" to="/admin/takip?tab=girisler" />
+            )}
+            <Kpi label="İrsaliye" value={formatNum(data.overview?.kpi.exits)} icon={FileText} color="primary" to="/admin/takip?tab=irsaliyeler" />
+            <Kpi label="Ciro" value={formatTL(data.overview?.kpi.invoiced)} icon={Wallet} color="green" to="/admin/finans" />
+            <Kpi label="Zayıf Mal" value={`%${formatNum(data.overview?.kpi.weakRate, 1)}`} icon={AlertTriangle} color={data.overview?.kpi.weakRate > 10 ? 'red' : 'amber'} to="/admin/takip?tab=girisler" />
           </div>
 
           {/* Bekleyen finans */}
@@ -100,6 +113,7 @@ export function DashboardPage() {
               icon={TrendingUp}
               color="amber"
               size="lg"
+              to="/admin/finans"
             />
             <Kpi
               label="Bekleyen Borç (üreticilere)"
@@ -107,6 +121,7 @@ export function DashboardPage() {
               icon={TrendingDown}
               color="red"
               size="lg"
+              to="/admin/finans"
             />
           </div>
 
@@ -248,18 +263,23 @@ export function DashboardPage() {
   )
 }
 
-function Kpi({ label, value, unit, icon: Icon, color = 'primary', size = 'md' }) {
+// to verilirse kart tıklanabilir olur — detay tablosuna açılır (bkz. /admin/takip)
+function Kpi({ label, value, unit, icon: Icon, color = 'primary', size = 'md', to }) {
   const colorMap = {
     primary: 'bg-primary-light text-primary-dark',
     green: 'bg-green-50 text-green-700 border-green-200',
     amber: 'bg-amber-50 text-amber-700 border-amber-200',
     red: 'bg-red-50 text-red-700 border-red-200',
   }
+  const Wrapper = to ? Link : 'div'
   return (
-    <div className={cn(
-      'bg-white border border-border rounded-2xl shadow-card flex items-start gap-3',
-      size === 'lg' ? 'p-5' : 'p-4'
-    )}>
+    <Wrapper
+      {...(to ? { to } : {})}
+      className={cn(
+        'bg-white border border-border rounded-2xl shadow-card flex items-start gap-3',
+        size === 'lg' ? 'p-5' : 'p-4',
+        to && 'hover:border-primary/40 hover:shadow-card-hover transition-all cursor-pointer'
+      )}>
       {Icon && (
         <div className={cn('rounded-xl p-2 shrink-0', colorMap[color])}>
           <Icon className="w-5 h-5" />
@@ -272,7 +292,7 @@ function Kpi({ label, value, unit, icon: Icon, color = 'primary', size = 'md' })
           {unit && <span className="text-sm font-normal text-text-muted ml-1">{unit}</span>}
         </p>
       </div>
-    </div>
+    </Wrapper>
   )
 }
 
@@ -303,11 +323,14 @@ function periodLabel(period) {
   return PERIODS.find((p) => p.key === period)?.label ?? ''
 }
 
-// Top 5 ürün + "Diğer"
+// Top 5 ürün + "Diğer".
+// Grafik kilo bazlı olduğu için bağ ve adet ürünleri DIŞARIDA bırakılır — 150
+// bağ maydanoz ile 150 kg domatesi aynı pastada toplamak yanlış sonuç üretirdi.
 function pieData(byProduct) {
   if (!byProduct?.length) return []
-  const top = byProduct.slice(0, 5).map((p) => ({ name: p.product?.name ?? '—', weight: p.weight }))
-  const others = byProduct.slice(5).reduce((s, p) => s + (p.weight ?? 0), 0)
+  const kgOnly = byProduct.filter((p) => !isCountable(p.unit))
+  const top = kgOnly.slice(0, 5).map((p) => ({ name: p.product?.name ?? '—', weight: p.weight }))
+  const others = kgOnly.slice(5).reduce((s, p) => s + (p.weight ?? 0), 0)
   if (others > 0) top.push({ name: 'Diğer', weight: Math.round(others * 100) / 100 })
   return top
 }

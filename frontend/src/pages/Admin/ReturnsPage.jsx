@@ -1,39 +1,58 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '@/services/api'
+import { api, asList, fetchAllPages } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
+import { Pagination } from '@/components/ui/Pagination'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { ExportButton } from '@/components/ui/ExportButton'
-import { formatDate, formatWeight } from '@/utils/formatters'
+import { formatDate, formatQty, isCountable, unitLabel } from '@/utils/formatters'
 import { Trash2, RotateCcw, AlertTriangle } from 'lucide-react'
 
 const fmtTL = (n) => new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(Number(n)))
 
+const PAGE_SIZE = 50
+const EMPTY_SUMMARY = { totalAmount: 0, totalCases: 0, discarded: 0, toDepo: 0, toMarket: 0 }
+
 export function ReturnsPage() {
   const [returns, setReturns] = useState([])
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [page, setPage] = useState(1)
+  // Özet sunucudan gelir — sayfa üzerinden hesaplanırsa toplamlar yanlış olur
+  const [summary, setSummary] = useState(EMPTY_SUMMARY)
   const [markets, setMarkets] = useState([])
   const [loading, setLoading] = useState(true)
   const [marketId, setMarketId] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [filterType, setFilterType] = useState('all') // all | depo | discarded
+  const [filterType, setFilterType] = useState('all') // all | depo | market | discarded
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const addToast = useToastStore((s) => s.addToast)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const filterParams = useCallback(() => {
     const params = {}
     if (marketId) params.marketId = marketId
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
-    api.listDepoReturns(params)
-      .then(setReturns)
+    if (filterType !== 'all') params.dest = filterType
+    return params
+  }, [marketId, dateFrom, dateTo, filterType])
+
+  const load = useCallback(() => {
+    setLoading(true)
+    api.listDepoReturns({ ...filterParams(), page, limit: PAGE_SIZE })
+      .then((res) => {
+        setReturns(asList(res))
+        setTotal(Array.isArray(res) ? res.length : (res?.total ?? 0))
+        setHasMore(Array.isArray(res) ? false : (res?.hasMore ?? false))
+        setSummary(res?.summary ?? EMPTY_SUMMARY)
+      })
       .catch(() => addToast('İadeler yüklenemedi', 'error'))
       .finally(() => setLoading(false))
-  }, [marketId, dateFrom, dateTo])
+  }, [filterParams, page])
 
   useEffect(() => {
     // DEPO (0) ve ATILAN (99) bayi değil — iade veren filtresinde görünmemeli
@@ -41,6 +60,7 @@ export function ReturnsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [marketId, dateFrom, dateTo, filterType])
 
   // İade üç yere gidebilir; hedefi entry'nin yazıldığı pazardan okuyoruz
   // (no 0 = DEPO, no 99 = ATILAN, gerisi normal bayi)
@@ -49,13 +69,8 @@ export function ReturnsPage() {
     return r.entry?.market?.no === 0 ? 'depo' : 'market'
   }
 
-  const filtered = returns.filter((r) => filterType === 'all' || destOf(r) === filterType)
-
-  const totalAmount = filtered.reduce((s, r) => s + (r.amount ?? 0), 0)
-  const totalCases = filtered.reduce((s, r) => s + (r.caseCount ?? 0), 0)
-  const totalDiscarded = filtered.filter((r) => destOf(r) === 'discarded').length
-  const totalToDepo = filtered.filter((r) => destOf(r) === 'depo').length
-  const totalToMarket = filtered.filter((r) => destOf(r) === 'market').length
+  // Süzme artık sunucuda (dest parametresi) — gelen sayfa zaten filtreli
+  const filtered = returns
 
   async function handleDelete() {
     if (!deleteTarget) return
@@ -82,18 +97,21 @@ export function ReturnsPage() {
         <ExportButton
           title="İade Kayıtları"
           filename={`iadeler-${new Date().toISOString().slice(0, 10)}`}
-          prepare={() => ({
-            columns: ['Tarih', 'Bayi', 'Ürün', 'Kasa', 'Ağırlık (kg)', 'TL/kg', 'Tutar (TL)', 'Durum', 'Zayıf', 'Not', 'Yapan'],
-            rows: filtered.map((r) => [
+          // Ekrandaki sayfa değil, filtreye uyan TÜM kayıtlar
+          prepare={async () => ({
+            columns: ['Tarih', 'Bayi', 'Ürün', 'Kasa', 'Miktar', 'Birim', 'Birim Fiyat (TL)', 'Tutar (TL)', 'Durum', 'Zayıf', 'Siyah/Karton Kasa', 'Not', 'Yapan'],
+            rows: (await fetchAllPages(api.listDepoReturns, filterParams())).map((r) => [
               formatDate(r.createdAt),
               r.market ? `#${r.market.no} ${r.market.name}` : '—',
               r.product?.name ?? '—',
               r.caseCount,
-              Number(r.weight).toFixed(2),
+              Number(r.weight).toFixed(isCountable(r.unit) ? 0 : 2),
+              unitLabel(r.unit),
               Number(r.pricePerKg).toFixed(2),
               Number(r.amount).toFixed(2),
               { discarded: 'İmha (99 ATILAN)', depo: 'Depoya alındı', market: `→ ${r.entry?.market?.name ?? ''}` }[destOf(r)],
               r.weak ? 'Evet' : '',
+              r.disposableCase ? 'Evet' : '',
               r.note ?? '',
               r.createdBy ?? '',
             ]),
@@ -104,15 +122,15 @@ export function ReturnsPage() {
 
       {/* Özet */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-        <SummaryCard label="İade Sayısı" value={filtered.length} />
-        <SummaryCard label="Toplam Kasa" value={totalCases} />
-        <SummaryCard label="Depoya Alınan" value={totalToDepo} />
-        <SummaryCard label="Pazara Yönlendirilen" value={totalToMarket} />
-        <SummaryCard label="İmha (99 ATILAN)" value={totalDiscarded} color="text-error" />
+        <SummaryCard label="İade Sayısı" value={total} />
+        <SummaryCard label="Toplam Kasa" value={summary.totalCases} />
+        <SummaryCard label="Depoya Alınan" value={summary.toDepo} />
+        <SummaryCard label="Pazara Yönlendirilen" value={summary.toMarket} />
+        <SummaryCard label="İmha (99 ATILAN)" value={summary.discarded} color="text-error" />
       </div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-6 text-sm text-amber-900">
-        <strong>Bayi alacağından düşülen toplam tutar:</strong> ₺{fmtTL(totalAmount)}
+        <strong>Bayi alacağından düşülen toplam tutar:</strong> ₺{fmtTL(summary.totalAmount)}
       </div>
 
       {/* Filter */}
@@ -175,8 +193,8 @@ export function ReturnsPage() {
                 <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Bayi</th>
                 <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Ürün</th>
                 <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Kasa</th>
-                <th className="p-3 text-right font-semibold text-text-secondary hidden sm:table-cell">Ağırlık</th>
-                <th className="p-3 text-right font-semibold text-text-secondary hidden lg:table-cell">TL/kg</th>
+                <th className="p-3 text-right font-semibold text-text-secondary hidden sm:table-cell">Miktar</th>
+                <th className="p-3 text-right font-semibold text-text-secondary hidden lg:table-cell">Birim Fiyat</th>
                 <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Tutar</th>
                 <th className="p-2 sm:p-3 text-center font-semibold text-text-secondary">Durum</th>
                 <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">İşlem</th>
@@ -195,9 +213,12 @@ export function ReturnsPage() {
                   <td className="p-2 sm:p-3 font-medium text-text-primary">
                     {r.product?.name ?? '—'}
                     {r.weak && <span className="ml-1 text-[10px] text-error">⚠</span>}
+                    {r.disposableCase && <span className="ml-1 text-[10px] text-text-muted">◻</span>}
                   </td>
-                  <td className="p-2 sm:p-3 text-right tabular-nums font-semibold">{r.caseCount}</td>
-                  <td className="p-3 text-right tabular-nums hidden sm:table-cell">{formatWeight(r.weight)}</td>
+                  <td className="p-2 sm:p-3 text-right tabular-nums font-semibold">
+                    {r.caseCount}
+                  </td>
+                  <td className="p-3 text-right tabular-nums hidden sm:table-cell">{formatQty(r.weight, r.unit)}</td>
                   <td className="p-3 text-right tabular-nums hidden lg:table-cell">₺{Number(r.pricePerKg).toFixed(2)}</td>
                   <td className="p-2 sm:p-3 text-right font-semibold text-blue-700 tabular-nums">−₺{fmtTL(r.amount)}</td>
                   <td className="p-2 sm:p-3 text-center">
@@ -229,6 +250,14 @@ export function ReturnsPage() {
           </table>
         )}
       </div>
+
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        hasMore={hasMore}
+        onChange={setPage}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

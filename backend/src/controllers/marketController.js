@@ -41,6 +41,51 @@ export async function getMarkets(req, res, next) {
   }
 }
 
+// Çıkış ekranından kaldırılan kalemler — gri satır olarak gösterilir. Hedef
+// depo olabilir ("X" butonu) ya da başka bir pazar ("Pazara aktar"), ikisi de
+// listelenir. Pencere: pazara en son irsaliye kesildiği andan sonrası. İrsaliye
+// kesilince liste kendiliğinden temizlenir.
+// Geri alınan kalem entry.marketId ile pazara döndüğü için filtreden düşer;
+// ayrı bir "iptal edildi" bayrağı tutmaya gerek yok.
+export async function getRemovedEntries(req, res, next) {
+  try {
+    const marketId = Number(req.params.id)
+
+    const lastExit = await prisma.exit.findFirst({
+      where: { marketId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    })
+
+    const removed = await prisma.transfer.findMany({
+      where: {
+        fromMarketId: marketId,
+        ...(lastExit && { createdAt: { gt: lastExit.createdAt } }),
+        entry: { exitItems: { none: {} } },
+      },
+      include: {
+        entry: {
+          include: {
+            product: true,
+            quality: true,
+            regionSession: { include: { region: true } },
+          },
+        },
+        toMarket: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // "Kalem hâlâ transferin götürdüğü yerde mi" — Prisma kolon-kolon
+    // karşılaştıramadığı için JS'te süzülüyor. Liste bir pazarın son irsaliyesi
+    // sonrasıyla sınırlı, birkaç satır. Zincirleme taşımada (A→B→C) yalnız son
+    // adım gri satır kalır; geri al butonu da yalnız onda çalışır.
+    res.json(removed.filter((t) => t.entry.marketId === t.toMarketId))
+  } catch (err) {
+    next(err)
+  }
+}
+
 export async function getMarketEntries(req, res, next) {
   try {
     const { id } = req.params

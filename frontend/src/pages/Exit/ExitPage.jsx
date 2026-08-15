@@ -5,6 +5,7 @@ import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
+import { ArrowLeft } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
 export function ExitPage() {
@@ -34,6 +35,13 @@ export function ExitPage() {
     <div className="min-h-screen bg-bg">
       <header className="bg-white border-b border-border px-4 py-4">
         <div className="flex items-center gap-3 max-w-5xl mx-auto">
+          <button
+            onClick={() => navigate('/')}
+            className="p-2 rounded-lg hover:bg-gray-100 text-text-muted shrink-0"
+            title="Ana sayfaya dön"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
           <span className="text-2xl">📋</span>
           <h1 className="text-lg font-bold text-text-primary">ÇIKIŞ / İRSALİYE</h1>
         </div>

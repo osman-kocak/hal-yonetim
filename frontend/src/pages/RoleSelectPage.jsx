@@ -1,7 +1,7 @@
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { hasAnyRoleArr } from '@/utils/roles'
-import { ShoppingBasket, Receipt, Package, Settings, Boxes, LogOut } from 'lucide-react'
+import { ShoppingBasket, Receipt, Package, Settings, Boxes, LogOut, RotateCcw } from 'lucide-react'
 
 const ALL_CARDS = [
   {
@@ -35,11 +35,21 @@ const ALL_CARDS = [
     bg: 'bg-amber-50',
   },
   {
+    key: 'iade',
+    roles: ['DEPO', 'ADMIN'],
+    icon: RotateCcw,
+    title: 'İade Kabul',
+    description: 'Bayiden gelen malı kaydet: depoya al, başka pazara yolla veya imha et',
+    to: '/iade',
+    color: 'text-rose-600',
+    bg: 'bg-rose-50',
+  },
+  {
     key: 'kasaci',
     roles: ['CASE_MANAGER', 'ADMIN'],
     icon: Boxes,
     title: 'Kasacı',
-    description: 'Pazardan iade al, pazar kasa bakiyelerini görüntüle',
+    description: 'Pazardan kasa iade al, bölgelere kasa ver, bakiyeleri gör',
     to: '/kasaci',
     color: 'text-purple-600',
     bg: 'bg-purple-50',
@@ -74,7 +84,7 @@ export function RoleSelectPage() {
 
   return (
     <div className="min-h-screen bg-bg flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-3xl">
+      <div className="w-full max-w-4xl">
         <div className="text-center mb-8">
           <span className="text-4xl">🌿</span>
           <h1 className="text-2xl font-bold text-text-primary mt-3">
@@ -83,7 +93,7 @@ export function RoleSelectPage() {
           <p className="text-sm text-text-muted mt-1">Hangi panele girmek istiyorsun?</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {cards.map((card) => {
             const Icon = card.icon
             return (

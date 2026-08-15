@@ -35,4 +35,10 @@ export const useAppStore = create((set) => ({
   // "Girişi Kaydet ve Üreticiyi Tamamla" — başka üretici seç, aynı bölge
   backToProducers: () =>
     set({ selectedProducer: null, selectedProduct: null, step: 'producer_select' }),
+
+  // Üretici adımından bölge listesine dön. Sunucudaki oturum KAPANMAZ — bölge
+  // listesinde "↩ Devam et" olarak görünür, tekrar seçilince kaldığı yerden açılır.
+  // Bölgeyi kapatmak için header'daki "Bölge Bitti" kullanılır (completeSession).
+  backToRegions: () =>
+    set({ activeSession: null, selectedProducer: null, selectedProduct: null, step: 'region_select' }),
 }))

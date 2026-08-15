@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { today } from '@/utils/formatters'
+import { today, isCountable, unitLabel } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 import { ExportButton } from '@/components/ui/ExportButton'
 
@@ -83,12 +83,20 @@ function StatBox({ label, value, unit }) {
   )
 }
 
+// Kilo, bağ ve adet ayrı eksenler — tek "Ağırlık" hücresinde toplanamaz.
+// Backend zaten üçünü ayrı döndürüyor (bkz. reportController → splitByUnit).
+const qtyCell = (d) => (isCountable(d.unit)
+  ? `${Number(d.totalWeight ?? 0)} ${unitLabel(d.unit)}`
+  : `${Number(d.totalWeight ?? 0).toFixed(1)} kg`)
+
 function DailyView({ data }) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <StatBox label="Giriş Kaydı" value={data.totalEntries} />
       <StatBox label="Toplam Kasa" value={data.totalCases} />
       <StatBox label="Toplam Ağırlık" value={data.totalWeight?.toFixed(1)} unit="kg" />
+      {data.totalBunches > 0 && <StatBox label="Toplam Bağ" value={data.totalBunches} />}
+      {data.totalPieces > 0 && <StatBox label="Toplam Adet" value={data.totalPieces} />}
       <StatBox label="İrsaliye" value={data.totalExits} />
     </div>
   )
@@ -96,16 +104,24 @@ function DailyView({ data }) {
 
 function MarketView({ data }) {
   if (!data.length) return <p className="text-text-muted">Bu tarihte veri yok</p>
+  // Bağ ve adet sütunları yalnızca o birimde veri varsa açılır — boş sütun
+  // tabloyu daraltır ve muhasebeci her gün aynı iki tireyi okur.
+  const anyBunch = data.some((d) => d.totalBunches > 0)
+  const anyPiece = data.some((d) => d.totalPieces > 0)
   return (
     <DataTable
       title="Pazar Bazlı Rapor"
-      columns={['Pazar No', 'Pazar Adı', 'Kasa', 'Ağırlık']}
-      rows={data.map((d) => [
-        `#${d.market.no}`,
-        d.market.name,
-        d.totalCases,
-        `${d.totalWeight.toFixed(1)} kg`,
-      ])}
+      columns={[
+        'Pazar No', 'Pazar Adı', 'Kasa', 'Ağırlık',
+        ...(anyBunch ? ['Bağ'] : []),
+        ...(anyPiece ? ['Adet'] : []),
+      ]}
+      rows={data.map((d) => {
+        const row = [`#${d.market.no}`, d.market.name, d.totalCases, `${d.totalWeight.toFixed(1)} kg`]
+        if (anyBunch) row.push(d.totalBunches || '—')
+        if (anyPiece) row.push(d.totalPieces || '—')
+        return row
+      })}
     />
   )
 }
@@ -115,12 +131,12 @@ function ProductView({ data }) {
   return (
     <DataTable
       title="Ürün Bazlı Rapor"
-      columns={['Ürün', 'Giriş Sayısı', 'Kasa', 'Ağırlık']}
+      columns={['Ürün', 'Giriş Sayısı', 'Kasa', 'Miktar']}
       rows={data.map((d) => [
         d.product?.name ?? '—',
         d.totalEntries,
         d.totalCases,
-        `${Number(d.totalWeight ?? 0).toFixed(1)} kg`,
+        qtyCell(d),
       ])}
     />
   )
@@ -131,13 +147,13 @@ function TopView({ data }) {
   return (
     <DataTable
       title="En Çok Giriş Yapılan Ürünler"
-      columns={['Sıra', 'Ürün', 'Giriş Sayısı', 'Kasa', 'Ağırlık (7 gün)']}
+      columns={['Sıra', 'Ürün', 'Giriş Sayısı', 'Kasa', 'Miktar (7 gün)']}
       rows={data.map((d, i) => [
         `#${i + 1}`,
         d.product?.name ?? '—',
         d.totalEntries,
         d.totalCases,
-        `${Number(d.totalWeight ?? 0).toFixed(1)} kg`,
+        qtyCell(d),
       ])}
     />
   )

@@ -1,14 +1,19 @@
 import { prisma } from '../utils/prismaClient.js'
 import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
 import { audit } from '../utils/audit.js'
+import { parsePagination, paginated } from '../utils/pagination.js'
 
 const MARKET_TYPES = ['MARKET_INVOICE', 'MARKET_PAYMENT', 'MARKET_ADJUSTMENT']
 const PRODUCER_TYPES = ['PRODUCER_DEBT', 'PRODUCER_PAYMENT', 'PRODUCER_ADJUSTMENT']
 const MANUAL_TYPES = ['MARKET_PAYMENT', 'MARKET_ADJUSTMENT', 'PRODUCER_DEBT', 'PRODUCER_PAYMENT', 'PRODUCER_ADJUSTMENT']
 const ADJUSTMENT_TYPES = ['MARKET_ADJUSTMENT', 'PRODUCER_ADJUSTMENT']
 
-// Bakiye etkisi
-function signFor(type) {
+// Bakiye etkisi.
+//
+// Export edildi: irsaliye başlığındaki bayi borcu da buradan hesaplanıyor
+// (utils/marketSummary.js). Kopyalanırsa yeni bir hareket tipi eklendiğinde
+// biri güncellenip diğeri unutulur ve fiş yanlış borç basar.
+export function signFor(type) {
   if (type === 'MARKET_INVOICE' || type === 'MARKET_ADJUSTMENT') return +1
   if (type === 'MARKET_PAYMENT') return -1
   if (type === 'PRODUCER_DEBT' || type === 'PRODUCER_ADJUSTMENT') return +1
@@ -32,17 +37,23 @@ export async function listEntries(req, res, next) {
       if (dateFrom) where.occurredAt.gte = startOfLocalDay(dateFrom)
       if (dateTo) where.occurredAt.lte = endOfLocalDay(dateTo)
     }
-    const data = await prisma.ledgerEntry.findMany({
-      where,
-      orderBy: { occurredAt: 'desc' },
-      include: {
-        market: true,
-        producer: true,
-        exit: { select: { id: true } },
-      },
-    })
+    const pg = parsePagination(req)
+    const [data, total] = await Promise.all([
+      prisma.ledgerEntry.findMany({
+        where,
+        orderBy: { occurredAt: 'desc' },
+        skip: pg.skip,
+        take: pg.limit,
+        include: {
+          market: true,
+          producer: true,
+          exit: { select: { id: true } },
+        },
+      }),
+      prisma.ledgerEntry.count({ where }),
+    ])
     audit(req, { action: 'READ', resource: 'ledger', recordCount: data.length })
-    res.json(data)
+    res.json(paginated(data, total, pg))
   } catch (err) {
     next(err)
   }

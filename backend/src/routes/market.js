@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getMarkets, getMarketEntries } from '../controllers/marketController.js'
+import { getMarkets, getMarketEntries, getRemovedEntries } from '../controllers/marketController.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const router = Router()
@@ -12,4 +12,5 @@ router.use(requireRole('OPERATOR', 'DEPO', 'ACCOUNTING', 'ADMIN'))
 
 router.get('/', getMarkets)
 router.get('/:id/entries', getMarketEntries)
+router.get('/:id/removed-entries', getRemovedEntries)
 export default router

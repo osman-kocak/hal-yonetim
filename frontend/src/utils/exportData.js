@@ -4,12 +4,60 @@
 // Kullanım:
 //   await exportToPDF({ title, columns, rows, filename })
 //   await exportToXLSX({ title, columns, rows, filename })
+//   await exportToXLSXSheets({ sheets: [{name, columns, rows}], filename, title })
 
 const PAGE_WIDTH = 210 // A4 mm
 const MARGIN = 14
 
 function safeName(filename, title) {
   return (filename || title || 'rapor').replace(/[^a-z0-9_-]+/gi, '_')
+}
+
+// Kolon genişlikleri. reduce ile: spread (...rows.map()) 20.000 satırda
+// argüman limitine dayanıp "Maximum call stack size exceeded" veriyordu —
+// irsaliye export'u ExitItem başına satır ürettiği için bu sınır gerçek.
+function colWidths(columns, rows) {
+  return columns.map((col, idx) => {
+    const maxLen = rows.reduce(
+      (m, r) => Math.max(m, String(r[idx] ?? '').length),
+      String(col).length,
+    )
+    return { wch: Math.min(Math.max(maxLen + 2, 10), 40) }
+  })
+}
+
+// Excel sekme adı kuralları:
+//   • en fazla 31 karakter
+//   • \ / ? * [ ] : yasak
+//   • tek tırnakla başlayamaz/bitemez
+//   • boş olamaz
+//   • aynı kitapta iki sekme aynı adı taşıyamaz (büyük/küçük harf farkı sayılmaz)
+const SHEET_NAME_MAX = 31
+
+export function sanitizeSheetName(name, fallback = 'Sayfa') {
+  let s = String(name ?? '')
+    .replace(/[\\/?*[\]:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/^'+|'+$/g, '')
+    .trim()
+  if (!s) s = fallback
+  return s.slice(0, SHEET_NAME_MAX)
+}
+
+// Tekilleştirici. Dedupe KIRPMADAN SONRA yapılmalı: iki uzun adın ilk 31
+// karakteri aynı olabilir. Sonek eklenirken taban tekrar kısaltılıyor.
+export function makeSheetNamer() {
+  const used = new Set()
+  return function nameFor(name, fallback) {
+    const base = sanitizeSheetName(name, fallback)
+    let candidate = base
+    for (let i = 2; used.has(candidate.toLocaleLowerCase('tr')); i++) {
+      const suffix = ` (${i})`
+      candidate = base.slice(0, SHEET_NAME_MAX - suffix.length).trimEnd() + suffix
+    }
+    used.add(candidate.toLocaleLowerCase('tr'))
+    return candidate
+  }
 }
 
 export async function exportToPDF({ title, subtitle, columns, rows, filename }) {
@@ -71,15 +119,37 @@ export async function exportToXLSX({ title, columns, rows, filename }) {
 
   const data = [columns, ...rows]
   const ws = XLSX.utils.aoa_to_sheet(data)
-  ws['!cols'] = columns.map((col, idx) => {
-    const maxLen = Math.max(
-      String(col).length,
-      ...rows.map((r) => String(r[idx] ?? '').length),
-    )
-    return { wch: Math.min(Math.max(maxLen + 2, 10), 40) }
-  })
+  ws['!cols'] = colWidths(columns, rows)
   const wb = XLSX.utils.book_new()
-  const sheetName = (title ?? 'Rapor').slice(0, 30).replace(/[\\/?*[\]:]/g, '_')
-  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(title, 'Rapor'))
+  XLSX.writeFile(wb, `${safeName(filename, title)}.xlsx`)
+}
+
+// Çok sekmeli XLSX: tek dosya, her grup (bölge / pazar) kendi sekmesinde.
+// Analiz için: tek sekmede 20 pazarı elle filtrelemek yerine sekmeye tıklamak.
+// exportToXLSX'e DOKUNULMADI — diğer 7 çağıran aynı yolda kalıyor.
+export async function exportToXLSXSheets({ sheets, filename, title }) {
+  const usable = (sheets ?? []).filter((s) => s?.rows?.length)
+  if (!usable.length) return
+
+  const XLSX = await import('xlsx')
+  const wb = XLSX.utils.book_new()
+  const nameFor = makeSheetNamer()
+
+  usable.forEach((s, i) => {
+    const columns = s.columns ?? []
+    const ws = XLSX.utils.aoa_to_sheet([columns, ...s.rows])
+    ws['!cols'] = colWidths(columns, s.rows)
+    // Başlık satırına filtre — sekme başına tek tık kazandırır.
+    // ('!freeze' community build'de desteklenmiyor, eklemeyin.)
+    ws['!autofilter'] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: s.rows.length, c: Math.max(0, columns.length - 1) },
+      }),
+    }
+    XLSX.utils.book_append_sheet(wb, ws, nameFor(s.name, `Sayfa ${i + 1}`))
+  })
+
   XLSX.writeFile(wb, `${safeName(filename, title)}.xlsx`)
 }

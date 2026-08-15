@@ -1,32 +1,48 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from '@/services/api'
+import { api, asList, fetchAllPages } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
-import { formatDate, formatWeight } from '@/utils/formatters'
+import { Pagination } from '@/components/ui/Pagination'
+import { formatDate, formatQty, isCountable, unitLabel } from '@/utils/formatters'
 import { ArrowRight } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
 
+const PAGE_SIZE = 50
+
 export function TransfersPage() {
   const [transfers, setTransfers] = useState([])
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const addToast = useToastStore((s) => s.addToast)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const filterParams = useCallback(() => {
     const params = {}
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
-    api.getAdminTransfers(params)
-      .then(setTransfers)
-      .catch(() => addToast('Transferler yüklenemedi', 'error'))
-      .finally(() => setLoading(false))
+    return params
   }, [dateFrom, dateTo])
 
+  const load = useCallback(() => {
+    setLoading(true)
+    api.getAdminTransfers({ ...filterParams(), page, limit: PAGE_SIZE })
+      .then((res) => {
+        setTransfers(asList(res))
+        setTotal(Array.isArray(res) ? res.length : (res?.total ?? 0))
+        setHasMore(Array.isArray(res) ? false : (res?.hasMore ?? false))
+      })
+      .catch(() => addToast('Transferler yüklenemedi', 'error'))
+      .finally(() => setLoading(false))
+  }, [filterParams, page])
+
   useEffect(() => { load() }, [load])
+  // Filtre değişince 1. sayfaya dön — yoksa 7. sayfada boş liste görünüyor
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo])
 
   return (
     <div className="p-6">
@@ -35,14 +51,17 @@ export function TransfersPage() {
         <ExportButton
           title="Transfer Geçmişi"
           filename={`transferler-${new Date().toISOString().slice(0, 10)}`}
-          prepare={() => ({
-            columns: ['Tarih', 'Ürün', 'Kalite', 'Kasa', 'Ağırlık (kg)', 'Kaynak', 'Hedef', 'Not', 'Yapan'],
-            rows: transfers.map((t) => [
+          // Ekrandaki sayfa değil, filtreye uyan TÜM kayıtlar indirilir
+          prepare={async () => ({
+            // Miktar birimi satır bazında: kilo ürününde kg, bağ/adette sayı.
+            // Sabit "Ağırlık (kg)" başlığı bağ transferlerini kilo gibi okutuyordu.
+            columns: ['Tarih', 'Ürün', 'Kasa', 'Miktar', 'Birim', 'Kaynak', 'Hedef', 'Not', 'Yapan'],
+            rows: (await fetchAllPages(api.getAdminTransfers, filterParams())).map((t) => [
               formatDate(t.createdAt),
               t.entry?.product?.name ?? '—',
-              t.entry?.quality?.name ?? '',
               t.entry?.caseCount ?? '',
-              t.entry?.weight ? Number(t.entry.weight).toFixed(2) : '',
+              t.entry?.weight ? Number(t.entry.weight).toFixed(isCountable(t.entry?.unit) ? 0 : 2) : '',
+              unitLabel(t.entry?.unit),
               t.fromMarket?.name ?? '—',
               t.toMarket?.name ?? '—',
               t.note ?? '',
@@ -95,7 +114,7 @@ export function TransfersPage() {
                   <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary hidden md:table-cell">Tarih</th>
                   <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Ürün</th>
                   <th className="p-2 sm:p-3 text-right font-semibold text-text-secondary">Kasa</th>
-                  <th className="p-3 text-right font-semibold text-text-secondary hidden sm:table-cell">Ağırlık</th>
+                  <th className="p-3 text-right font-semibold text-text-secondary hidden sm:table-cell">Miktar</th>
                   <th className="p-2 sm:p-3 text-left font-semibold text-text-secondary">Hareket</th>
                   <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Not</th>
                   <th className="p-3 text-left font-semibold text-text-secondary hidden lg:table-cell">Yapan</th>
@@ -107,15 +126,13 @@ export function TransfersPage() {
                     <td className="p-3 whitespace-nowrap text-text-primary hidden md:table-cell">{formatDate(t.createdAt)}</td>
                     <td className="p-2 sm:p-3 text-text-primary font-medium">
                       <div className="flex flex-col">
-                        <span>
-                          {t.entry?.product?.name ?? '—'}
-                          {t.entry?.quality && <span className="text-[10px] sm:text-xs text-text-muted ml-1 sm:ml-2">({t.entry.quality.name})</span>}
-                        </span>
+                        <span>{t.entry?.product?.name ?? '—'}</span>
                         <span className="md:hidden text-[10px] text-text-muted mt-0.5">{formatDate(t.createdAt)}</span>
                       </div>
                     </td>
                     <td className="p-2 sm:p-3 text-right tabular-nums">{t.entry?.caseCount ?? '—'}</td>
-                    <td className="p-3 text-right tabular-nums hidden sm:table-cell">{t.entry?.weight ? formatWeight(t.entry.weight) : '—'}</td>
+                    {/* Miktar birimiyle: bağ/adet transferi kilo gibi okunmasın */}
+                    <td className="p-3 text-right tabular-nums hidden sm:table-cell">{t.entry?.weight ? formatQty(t.entry.weight, t.entry.unit) : '—'}</td>
                     <td className="p-2 sm:p-3">
                       <div className="inline-flex items-center gap-1 sm:gap-2 text-[10px] sm:text-sm">
                         <Badge variant="default">{t.fromMarket?.name ?? '—'}</Badge>
@@ -132,6 +149,14 @@ export function TransfersPage() {
           </div>
         )}
       </div>
+
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        hasMore={hasMore}
+        onChange={setPage}
+      />
     </div>
   )
 }

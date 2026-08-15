@@ -9,7 +9,10 @@
     "db:seed": "node prisma/seed.js",
     "db:studio": "prisma studio",
     "db:reset": "prisma db push --force-reset && node prisma/seed.js",
-    "db:import-producers": "node scripts/import-producers.js"
+    "db:import-producers": "node scripts/import-producers.js",
+    "db:set-bunch": "node scripts/set-bunch-products.js",
+    "db:set-piece": "node scripts/set-piece-products.js",
+    "db:fix-discard": "node scripts/fix-discard-source.js"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",

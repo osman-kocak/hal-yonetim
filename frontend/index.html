@@ -8,7 +8,10 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- apple-mobile-web-app-capable BİLEREK YOK: standalone (tam ekran) modda
+         iOS `window.print()` çağrısını sessizce yok sayıyor. Ana ekran ikonu
+         Safari'de açılsın ki yazdırma çalışsın. MDM Web Clip profilinde de
+         FullScreen=false olmalı — meta tek başına yetmez. -->
     <title>Hal Yönetim</title>
   </head>
   <body>

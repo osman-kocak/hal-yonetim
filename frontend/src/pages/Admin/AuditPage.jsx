@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api, errorMessage } from '@/services/api'
+import { api, asList, errorMessage } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Badge } from '@/components/ui/Badge'
+import { Pagination } from '@/components/ui/Pagination'
 import { formatDate } from '@/utils/formatters'
 import { ShieldAlert } from 'lucide-react'
 
@@ -16,8 +17,13 @@ const RESOURCE_LABELS = {
   'case-movements': 'Kasa hareketleri', reports: 'Raporlar', fire: 'Fire',
 }
 
+const PAGE_SIZE = 50
+
 export function AuditPage() {
   const [logs, setLogs] = useState([])
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [action, setAction] = useState('')
@@ -25,21 +31,28 @@ export function AuditPage() {
   const [dateTo, setDateTo] = useState('')
 
   const load = useCallback(() => {
-    const params = {}
+    const params = { page, limit: PAGE_SIZE }
     if (action) params.action = action
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
     return api.getAuditLogs(params)
-      .then((res) => { setLogs(res ?? []); setError('') })
+      .then((res) => {
+        setLogs(asList(res))
+        setTotal(Array.isArray(res) ? res.length : (res?.total ?? 0))
+        setHasMore(Array.isArray(res) ? false : (res?.hasMore ?? false))
+        setError('')
+      })
       .catch((err) => setError(errorMessage(err, 'Kayıtlar yüklenemedi')))
       .finally(() => setLoading(false))
-  }, [action, dateFrom, dateTo])
+  }, [action, dateFrom, dateTo, page])
 
   useEffect(() => {
     let alive = true
     const t = setTimeout(() => { if (alive) load() }, 0)
     return () => { alive = false; clearTimeout(t) }
   }, [load])
+
+  useEffect(() => { setPage(1) }, [action, dateFrom, dateTo])
 
   const anomalies = logs.filter((l) => (l.recordCount ?? 0) >= ANOMALY_THRESHOLD).length
 
@@ -131,6 +144,14 @@ export function AuditPage() {
           </div>
         </div>
       )}
+
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        hasMore={hasMore}
+        onChange={setPage}
+      />
     </div>
   )
 }

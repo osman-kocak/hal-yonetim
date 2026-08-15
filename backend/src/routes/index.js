@@ -9,6 +9,13 @@ import casesRoutes from './cases.js'
 import publicRoutes from './public.js'
 
 const router = Router()
+
+// Bağlantı yoklaması. Kök /health web server'da backend'e proxy'lenmiyor,
+// SPA fallback'e düşüp 200 + HTML dönüyordu — istemci bunu "bağlantı iyi"
+// sanıyordu. /api altındaki bu kopya gerçekten backend'e ulaşıyor.
+// Auth YOK: yoklama oturum açmadan da çalışmalı (bkz. store/connectionStore.js).
+router.get('/health', (req, res) => res.json({ ok: true, at: new Date().toISOString() }))
+
 router.use('/region', regionRoutes)
 router.use('/entry', entryRoutes)
 router.use('/exit', exitRoutes)

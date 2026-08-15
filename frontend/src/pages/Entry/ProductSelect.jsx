@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft } from 'lucide-react'
+import { ArrowLeft, ChevronLeft } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAppStore } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
@@ -13,7 +13,20 @@ export function ProductSelect() {
   const [loading, setLoading] = useState(true)
   const [openGroup, setOpenGroup] = useState(null) // açık ana ürün grubu
   const selectProduct = useAppStore((s) => s.selectProduct)
+  const backToProducers = useAppStore((s) => s.backToProducers)
   const addToast = useToastStore((s) => s.addToast)
+
+  // Sihirbazda bir adım geri. Grup içindeki ChevronLeft'ten farklı: o yalnızca
+  // varyant listesinden ana ürünlere döner, adımı değiştirmez.
+  const backButton = (
+    <button
+      type="button"
+      onClick={backToProducers}
+      className="flex items-center gap-1 text-text-muted hover:text-text-primary text-sm mb-6"
+    >
+      <ArrowLeft className="w-4 h-4" /> Üretici listesine dön
+    </button>
+  )
 
   useEffect(() => {
     api.getProducts()
@@ -33,7 +46,12 @@ export function ProductSelect() {
   }
 
   if (!products.length) {
-    return <EmptyState icon="📦" title="Henüz ürün eklenmemiş" description="Admin panelinden ürün ekleyin" />
+    return (
+      <div>
+        {backButton}
+        <EmptyState icon="📦" title="Henüz ürün eklenmemiş" description="Admin panelinden ürün ekleyin" />
+      </div>
+    )
   }
 
   // --- Varyant seçimi (bir ana ürün açıkken) ---
@@ -71,6 +89,7 @@ export function ProductSelect() {
   // --- Ana ürün seçimi ---
   return (
     <div>
+      {backButton}
       <h2 className="text-xl font-bold text-text-primary mb-6">Ürün Seçin</h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {groups.map((g) =>

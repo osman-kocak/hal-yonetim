@@ -6,7 +6,7 @@ import { useToastStore } from '@/store/toastStore'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { Store, LogOut, RefreshCw, ArrowLeft } from 'lucide-react'
+import { Store, LogOut, RefreshCw, ArrowLeft, MapPin } from 'lucide-react'
 
 export function CaseManagerPage() {
   const navigate = useNavigate()
@@ -14,14 +14,19 @@ export function CaseManagerPage() {
   const addToast = useToastStore((s) => s.addToast)
 
   const [marketBalances, setMarketBalances] = useState([])
+  const [regionBalances, setRegionBalances] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(async () => {
     setRefreshing(true)
     try {
-      const m = await api.getCaseMarketBalances()
+      const [m, r] = await Promise.all([
+        api.getCaseMarketBalances(),
+        api.getCaseRegionBalances(),
+      ])
       setMarketBalances((m ?? []).filter((x) => x.no !== 0))
+      setRegionBalances(r ?? [])
     } catch {
       addToast('Bakiyeler yüklenemedi', 'error')
     } finally {
@@ -84,13 +89,38 @@ export function CaseManagerPage() {
           onSubmitted={load}
         />
 
+        <CaseMovementForm
+          title="Bölgeye Kasa Ver"
+          icon={MapPin}
+          accent="text-purple-600"
+          accentBg="bg-purple-50"
+          targetLabel="Bölge"
+          // Pasif bölgeye kasa verilemez (backend de reddediyor); bakiye listesinde
+          // görünmeye devam eder ki açık kasa unutulmasın.
+          options={regionBalances.filter((r) => r.active).map((r) => ({ id: r.id, label: r.name, balance: r.balance }))}
+          movementType="REGION_OUT"
+          targetKey="regionId"
+          hint="Bahçeden mal toplanması için verilen boş kasa. O bölgeden mal kabul edildikçe bakiye otomatik düşer."
+          onSubmitted={load}
+        />
+
         <BalanceList title="Pazar Bakiyeleri" rows={marketBalances.map((m) => ({ key: m.id, label: `#${m.no} ${m.name}`, balance: m.balance }))} />
+
+        <BalanceList
+          title="Bölge Bakiyeleri"
+          emptyText="Bölge kasa hareketi yok"
+          rows={regionBalances.map((r) => ({
+            key: r.id,
+            label: r.active ? r.name : `${r.name} (pasif)`,
+            balance: r.balance,
+          }))}
+        />
       </main>
     </div>
   )
 }
 
-function CaseMovementForm({ title, icon: Icon, accent, accentBg, targetLabel, options, movementType, targetKey, onSubmitted }) {
+function CaseMovementForm({ title, icon: Icon, accent, accentBg, targetLabel, options, movementType, targetKey, hint, onSubmitted }) {
   const [targetId, setTargetId] = useState('')
   const [qty, setQty] = useState('')
   const [note, setNote] = useState('')
@@ -130,6 +160,8 @@ function CaseMovementForm({ title, icon: Icon, accent, accentBg, targetLabel, op
         </div>
         <h2 className="text-lg font-bold text-text-primary">{title}</h2>
       </div>
+
+      {hint && <p className="text-xs text-text-muted mb-4 leading-relaxed">{hint}</p>}
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
@@ -180,7 +212,7 @@ function CaseMovementForm({ title, icon: Icon, accent, accentBg, targetLabel, op
   )
 }
 
-function BalanceList({ title, rows }) {
+function BalanceList({ title, rows, emptyText = 'Kayıt yok' }) {
   const total = rows.reduce((s, r) => s + (r.balance ?? 0), 0)
   return (
     <div className="bg-white border border-border rounded-2xl shadow-card p-6">
@@ -191,7 +223,7 @@ function BalanceList({ title, rows }) {
         </p>
       </div>
       {rows.length === 0 ? (
-        <p className="text-sm text-text-muted">Kayıt yok</p>
+        <p className="text-sm text-text-muted">{emptyText}</p>
       ) : (
         <div className="divide-y divide-border">
           {rows.map((r) => (

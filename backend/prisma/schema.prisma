@@ -22,6 +22,19 @@ enum UserRole {
 
 // Entry'nin nereden geldiği. Raporlar HARVEST'e göre filtreler — iade ve imha
 // malı "bugün gelen mal" sayılırsa mal kabul hacmi çift sayılır.
+// Ürünün satış birimi. Yalnızca MİKTAR EKSENİNİ belirler — kasa hesabını değil.
+//   CASE  → kilo tartılır, miktar weight = kg      (varsayılan)
+//   BUNCH → bağla satılır, miktar weight = bağ     (maydanoz, marul, roka…)
+//   PIECE → adetle satılır, miktar weight = adet
+// Üç birimde de kasa sayımı aynı kuralla işler: kasa hesabına girip girmediğini
+// yalnızca Entry.disposableCase (siyah/karton kasa) belirler.
+// Tek okuma noktası: utils/cases.js → trackedCases()
+enum ProductUnit {
+  CASE
+  BUNCH
+  PIECE
+}
+
 enum EntrySource {
   HARVEST   // Normal mal kabul (bölge oturumundan)
   RETURN    // Bayiden iade — depoya veya doğrudan başka pazara
@@ -42,6 +55,9 @@ enum CaseMovementType {
   MARKET_IN       // Bayiden iade alındı (manuel)
   MARKET_INIT     // Bayi başlangıç bakiyesi
   MARKET_ADJUST   // Bayi düzeltme (qty signed olabilir)
+  REGION_OUT      // Bölgeye boş kasa verildi — bahçeden mal toplasın diye (manuel)
+  REGION_IN       // Bölgeden kasa döndü (otomatik, mal kabul Entry'si ile)
+  REGION_ADJUST   // Bölge düzeltme (qty signed olabilir)
 }
 
 // Üreticilerin bağlı olduğu coğrafi bölge. Mal kabul ekranı bölgeye göre filtreler.
@@ -51,6 +67,7 @@ model Region {
   active         Boolean         @default(true)
   producers      Producer[]
   regionSessions RegionSession[]
+  caseMovements  CaseMovement[]
   createdAt      DateTime        @default(now())
 
   @@index([active])
@@ -88,6 +105,11 @@ model Product {
   name      String  @unique
   icon      String? // Emoji veya kısa metin (örn. 🍅, 🍎)
   groupName String? // Ana ürün / grup adı (örn. "Portakal"). null → tekil/ana ürün. Giriş ekranı buna göre gruplar.
+  // Satış birimi. Miktar her birimde weight kolonunda durur (kg / bağ / adet) ve
+  // Price.pricePerKg o birimin fiyatıdır (₺/kg, ₺/bağ, ₺/adet). Fatura formülü
+  // (pricePerKg * weight) üç birimde de aynı kalır — bu yüzden fiyat/irsaliye
+  // kodu birime bakmıyor. Kasa sayımı birimden bağımsız: bkz. utils/cases.js
+  unit      ProductUnit @default(CASE)
   entries   Entry[]
   prices    Price[]
   returns   ReturnRecord[]
@@ -118,6 +140,7 @@ model Market {
 model Entry {
   id              Int            @id @default(autoincrement())
   returnRecord    ReturnRecord?
+  caseMovement    CaseMovement?
   // nullable KALMALI — iade entry'lerinin oturumu yok (bkz. transferController)
   regionSession   RegionSession? @relation(fields: [regionSessionId], references: [id], onDelete: SetNull)
   regionSessionId Int?
@@ -127,15 +150,28 @@ model Entry {
   producerId      Int?
   quality         Quality?       @relation(fields: [qualityId], references: [id], onDelete: Restrict)
   qualityId       Int?
-  caseCount       Int
-  weight          Float
+  caseCount       Int            // Fiziksel kasa adedi — birimden bağımsız, her üründe sayılır
+  weight          Float          // Miktar ekseni: CASE kilo · BUNCH bağ · PIECE adet
+  // Kayıt anındaki ürün birimi SNAPSHOT'ı. Ürünün birimi sonradan değişse de
+  // geçmiş irsaliye/rapor anlamını korur — aynı gerekçe ExitItem.pricePerKg için
+  // de yazılı. Snapshot olmadan bir Entry satırı tek başına okunamaz.
+  unit            ProductUnit    @default(CASE)
   weak            Boolean        @default(false)
+  // Tek kullanımlık (siyah/karton) kasa. true ise bu malın kasası HİÇBİR bakiyeye
+  // girmez — ne bölgeye (REGION_IN), ne bayiye (MARKET_OUT), ne iadede (MARKET_IN).
+  // Atılan kasadır, stoklu kasa değil. weak'ten BAĞIMSIZ: ikisi aynı anda
+  // işaretlenebilir. Tek okuma noktası: utils/cases.js → trackedCases()
+  disposableCase  Boolean        @default(false)
   // Mal kabul mu, iade mi, imha mı — raporlar buna göre filtreler
   source          EntrySource    @default(HARVEST)
   market          Market         @relation(fields: [marketId], references: [id], onDelete: Restrict)
   marketId        Int
   exitItems       ExitItem[]
   transfers       Transfer[]
+  // Kaydı kim oluşturdu. Saha girişlerinde operatör, admin/muhasebenin elle
+  // açtığı depo girişlerinde o kullanıcı. Elle giriş bölge oturumu olmadan
+  // stok yarattığı için izlenebilir olmalı.
+  createdBy       String?
   createdAt       DateTime       @default(now())
 
   // FIFO grouped transfer + market filter sorgularını hızlandırır
@@ -171,13 +207,25 @@ model ExitItem {
   @@unique([entryId])
 }
 
-// Günlük ürün fiyatları — muhasebeci admin panelden girer
+// Günlük ürün fiyatları — muhasebeci admin panelden girer.
+//
+// qualityId NULL = ürünün GENEL fiyatı, kaliteden bağımsız. Yeni fiyatlar hep
+// böyle giriliyor: kalite özelliği 2026-08-13'te kullanımdan kalktı (mal kabul
+// ekranı zaten kalite göndermiyordu, o yüzden Entry.qualityId null geliyor ve
+// kaliteli fiyat satırları saha girişleriyle hiç eşleşmiyordu).
+//
+// Kaliteli satırlar GEÇMİŞ için duruyor. Fiyat araması iki katmanlı:
+// önce (ürün+kalite), yoksa genel fiyat — bkz. utils/prices.js → priceOf().
+//
+// DİKKAT: @@unique NULL'lu satırları KAPSAMAZ (Postgres'te NULL'lar birbirine
+// eşit sayılmaz). Genel fiyatın tekilliğini migration'daki partial unique index
+// sağlıyor: UNIQUE (productId, date) WHERE qualityId IS NULL.
 model Price {
   id         Int      @id @default(autoincrement())
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   productId  Int
-  quality    Quality  @relation(fields: [qualityId], references: [id], onDelete: Cascade)
-  qualityId  Int
+  quality    Quality? @relation(fields: [qualityId], references: [id], onDelete: Cascade)
+  qualityId  Int?
   pricePerKg Float
   date       DateTime @db.Date
   createdAt  DateTime @default(now())
@@ -185,6 +233,8 @@ model Price {
   updatedBy  String?
 
   @@unique([productId, qualityId, date])
+  // Genel fiyatın gün+ürün bazlı aramasını karşılar
+  @@index([date, productId])
 }
 
 // Finansal hareket — bayi (müşteri) ve üretici cari hesapları
@@ -207,17 +257,29 @@ model LedgerEntry {
   @@index([marketId, occurredAt])
   @@index([producerId, occurredAt])
   @@index([type, occurredAt])
+  // Filtresiz liste (Finans sayfasının varsayılan hâli) yalnızca occurredAt'e
+  // göre sıralıyor. Yukarıdaki composite'lerin lider kolonu farklı olduğu için
+  // o sorguya hizmet edemiyorlar → seq scan + sort. Bu index onu karşılar.
+  @@index([occurredAt])
 }
 
-// Kasa hareketi — bayi kasa takibi
+// Kasa hareketi — bayi (MARKET_*) ve bölge (REGION_*) kasa takibi.
+// Bölge tarafı: hale gelen boş kasa bölgeye verilir (REGION_OUT), o bölgeden
+// mal kabul edilince kasa dönmüş sayılır (REGION_IN, Entry ile otomatik).
 model CaseMovement {
   id           Int              @id @default(autoincrement())
   type         CaseMovementType
   qty          Int
   market       Market?          @relation(fields: [marketId], references: [id], onDelete: Restrict)
   marketId     Int?
+  region       Region?          @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  regionId     Int?
   exit         Exit?            @relation(fields: [exitId], references: [id], onDelete: Cascade)
   exitId       Int?             @unique
+  // Mal kabulden doğan REGION_IN hareketi. Giriş silinirse kasa hareketi de
+  // silinmeli — yoksa bölge bakiyesi karşılığı olmayan bir düşümle kalır.
+  entry        Entry?           @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entryId      Int?             @unique
   returnRecord ReturnRecord?
   note         String?
   occurredAt   DateTime         @default(now())
@@ -225,6 +287,9 @@ model CaseMovement {
   createdBy    String?
 
   @@index([marketId, occurredAt])
+  @@index([regionId, occurredAt])
+  // Kasa Takip sayfasının filtresiz hâli — bkz. LedgerEntry'deki not
+  @@index([occurredAt])
 }
 
 // Bayiden mal iadesi: Entry (opt) + LedgerEntry + CaseMovement tek kayıtta toplanır.
@@ -236,11 +301,15 @@ model ReturnRecord {
   product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
   productId       Int
   qualityId       Int?
-  caseCount       Int
-  weight          Float
-  pricePerKg      Float
+  caseCount       Int           // Fiziksel kasa adedi — birimden bağımsız
+  weight          Float         // CASE: kilo · BUNCH: bağ · PIECE: adet
+  pricePerKg      Float         // Birimin fiyatı: ₺/kg · ₺/bağ · ₺/adet
   amount          Float
+  unit            ProductUnit   @default(CASE)
   weak            Boolean       @default(false)
+  // Entry.disposableCase'in aynası — iade edilen mal siyah/karton kasada geldiyse
+  // bayinin kasa borcundan düşülmez (MARKET_IN yazılmaz).
+  disposableCase  Boolean       @default(false)
   discarded       Boolean       @default(false)
   note            String?
   entry           Entry?        @relation(fields: [entryId], references: [id], onDelete: SetNull)
@@ -253,6 +322,9 @@ model ReturnRecord {
   createdBy       String?
 
   @@index([marketId, createdAt])
+  @@index([createdAt])
+  // İadeler sayfasındaki hedef filtresi (dest=discarded) — bkz. listReturns
+  @@index([discarded, createdAt])
 }
 
 // Sistemi kullanan kullanıcılar — operatörler (sadece referans),
@@ -283,6 +355,8 @@ model Transfer {
   @@index([entryId])
   @@index([fromMarketId, createdAt])
   @@index([toMarketId, createdAt])
+  // Transfer Geçmişi filtresiz açılıyor
+  @@index([createdAt])
 }
 
 // Erişim/denetim kaydı — hassas veri okuma ve export'ları izler.
@@ -302,4 +376,6 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([resource, createdAt])
   @@index([action, createdAt])
+  // Erişim Kayıtları filtresiz açılıyor
+  @@index([createdAt])
 }

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from '@/services/api'
+import { api, asList, fetchAllPages } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Pagination } from '@/components/ui/Pagination'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -80,10 +81,15 @@ export function FinancePage() {
   )
 }
 
+const PAGE_SIZE = 50
+
 function LedgerTab({ scope }) {
   const isMarket = scope === 'market'
   const [balances, setBalances] = useState([])
   const [entries, setEntries] = useState([])
+  const [total, setTotal] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -98,20 +104,29 @@ function LedgerTab({ scope }) {
     fn().then(setBalances).catch(() => addToast('Bakiyeler yüklenemedi', 'error'))
   }, [isMarket])
 
-  const fetchEntries = useCallback(() => {
-    setLoading(true)
+  const filterParams = useCallback(() => {
     const params = { scope }
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
     if (filterId) params[isMarket ? 'marketId' : 'producerId'] = filterId
-    api.getLedger(params)
-      .then(setEntries)
+    return params
+  }, [scope, dateFrom, dateTo, filterId, isMarket])
+
+  const fetchEntries = useCallback(() => {
+    setLoading(true)
+    api.getLedger({ ...filterParams(), page, limit: PAGE_SIZE })
+      .then((res) => {
+        setEntries(asList(res))
+        setTotal(Array.isArray(res) ? res.length : (res?.total ?? 0))
+        setHasMore(Array.isArray(res) ? false : (res?.hasMore ?? false))
+      })
       .catch(() => addToast('Hareketler yüklenemedi', 'error'))
       .finally(() => setLoading(false))
-  }, [scope, dateFrom, dateTo, filterId, isMarket])
+  }, [filterParams, page])
 
   useEffect(() => { fetchBalances() }, [fetchBalances])
   useEffect(() => { fetchEntries() }, [fetchEntries])
+  useEffect(() => { setPage(1) }, [scope, dateFrom, dateTo, filterId])
 
   function refreshAll() { fetchBalances(); fetchEntries() }
 
@@ -148,7 +163,8 @@ function LedgerTab({ scope }) {
         </div>
         <div className="bg-white border border-border rounded-2xl p-4 shadow-card">
           <p className="text-xs text-text-muted uppercase tracking-wide">Hareket Sayısı</p>
-          <p className="text-2xl font-bold text-text-primary mt-1">{entries.length}</p>
+          {/* total: filtreye uyan tüm kayıtlar (sayfadaki değil) */}
+          <p className="text-2xl font-bold text-text-primary mt-1">{total}</p>
         </div>
       </div>
 
@@ -161,9 +177,10 @@ function LedgerTab({ scope }) {
             title={`Finans - ${isMarket ? 'Bayi' : 'Üretici'} Hareketleri`}
             resource="finance"
             filename={`finans-${isMarket ? 'bayi' : 'uretici'}-${new Date().toISOString().slice(0, 10)}`}
-            prepare={() => ({
+            // Ekrandaki sayfa değil, filtreye uyan TÜM hareketler
+            prepare={async () => ({
               columns: ['Tarih', 'Tip', isMarket ? 'Bayi' : 'Üretici', 'Tutar', 'Not', 'Yapan'],
-              rows: entries.map((e) => [
+              rows: (await fetchAllPages(api.getLedger, filterParams())).map((e) => [
                 formatDate(e.occurredAt),
                 TYPE_META[e.type]?.label ?? e.type,
                 isMarket ? (e.market ? `#${e.market.no} ${e.market.name}` : '—') : (e.producer?.name ?? '—'),
@@ -291,6 +308,14 @@ function LedgerTab({ scope }) {
           </div>
         )}
       </div>
+
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={PAGE_SIZE}
+        hasMore={hasMore}
+        onChange={setPage}
+      />
 
       <LedgerModal
         open={modalOpen}

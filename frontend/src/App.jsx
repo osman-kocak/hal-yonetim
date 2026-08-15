@@ -16,12 +16,14 @@ import { ReportsPage } from '@/pages/Admin/ReportsPage'
 import { PricesPage } from '@/pages/Admin/PricesPage'
 import { HistoryPage } from '@/pages/Admin/HistoryPage'
 import { CaseTrackingPage } from '@/pages/Admin/CaseTrackingPage'
+import { DepoPage as AdminDepoPage } from '@/pages/Admin/DepoPage'
 import { TransfersPage } from '@/pages/Admin/TransfersPage'
 import { FinancePage } from '@/pages/Admin/FinancePage'
 import { UsersPage } from '@/pages/Admin/UsersPage'
 import { ReturnsPage } from '@/pages/Admin/ReturnsPage'
 import { FirePage } from '@/pages/Admin/FirePage'
 import { AuditPage } from '@/pages/Admin/AuditPage'
+import { ReturnPage } from '@/pages/Return/ReturnPage'
 import { DepoLayout } from '@/pages/Depo/DepoLayout'
 import { DepoTransferPage } from '@/pages/Depo/DepoTransferPage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -31,6 +33,9 @@ import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ProtectedRoute, PublicOnlyRoute } from '@/components/ProtectedRoute'
 import { WatermarkedLayout } from '@/components/ScreenWatermark'
 import { ToastProvider } from '@/components/ui/Toast'
+import { IrsaliyePrintHost } from '@/components/IrsaliyePrint'
+import { OfflineBanner } from '@/components/OfflineBanner'
+import { startConnectionMonitor } from '@/store/connectionStore'
 
 const router = createBrowserRouter([
   // Merkezi giriş sayfası — auth'lu kullanıcı /'a yönlendirilir
@@ -70,6 +75,13 @@ const router = createBrowserRouter([
         element: <ProtectedRoute><MarketExitDetail /></ProtectedRoute>,
       },
 
+      // İade kabul — bayiden gelen mal. Depo ile aynı yetki: iade depoya/pazara
+      // stok yazar, borç düşer.
+      {
+        path: '/iade',
+        element: <ProtectedRoute roles={['DEPO', 'ADMIN']}><ReturnPage /></ProtectedRoute>,
+      },
+
       // Depo paneli — sadece DEPO + ADMIN
       {
         path: '/depo',
@@ -99,6 +111,7 @@ const router = createBrowserRouter([
       { path: 'fiyatlar', element: <PricesPage /> },
       { path: 'finans', element: <FinancePage /> },
       { path: 'takip', element: <HistoryPage /> },
+      { path: 'depo', element: <AdminDepoPage /> },
       { path: 'kasalar', element: <CaseTrackingPage /> },
       { path: 'transferler', element: <TransfersPage /> },
       { path: 'iadeler', element: <ReturnsPage /> },
@@ -128,10 +141,17 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  // Bağlantı izleme: kesinti şeridini besler ve kesinti sürelerini ölçer.
+  // Offline mimarisi kararı (hücresel hat / PWA kuyruk) bu veriye dayanacak.
+  useEffect(() => startConnectionMonitor(), [])
+
   return (
     <>
+      <OfflineBanner />
       <RouterProvider router={router} />
       <ToastProvider />
+      {/* Router dışında: irsaliye kesip /cikis'e dönerken yazdırma ekranı kapanmasın */}
+      <IrsaliyePrintHost />
     </>
   )
 }

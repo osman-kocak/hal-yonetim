@@ -39,3 +39,212 @@
     overscroll-behavior: none;
   }
 }
+
+/* ---- İrsaliye yazdırma ----
+   iPad'den AirPrint ile doğrudan çıkış alınır (bkz. components/IrsaliyePrint.jsx).
+   Sayfa ekranda hiç görünmez; yalnızca yazdırmada uygulamanın yerine geçer. */
+@media screen {
+  .print-root { display: none; }
+}
+
+@media print {
+  /* Kenar boşluğu yok — header en üste, footer en alta dayansın. Yazıcının
+     fiziksel basamadığı ~5mm'lik şerit için sayfa içinde padding var. */
+  @page { size: A4 portrait; margin: 0; }
+
+  html, body {
+    background: #fff !important;
+    height: auto !important;
+    overscroll-behavior: auto;
+    /* @page margin:0 tek başına yetmiyor: tarayıcının body'ye verdiği varsayılan
+       boşluk sayfaya beyaz çerçeve olarak geçiyordu. Tailwind preflight body'yi
+       zaten sıfırlıyor ama print'te !important ile garanti altına alıyoruz. */
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Uygulamanın geri kalanı (paneller, filigran, toast) basılmaz */
+  #root > *:not(.print-root) { display: none !important; }
+
+  /* Yazdırma zincirindeki HER kapsayıcı sıfır: #root ya da .print-root üzerinde
+     kalan bir padding, içerideki mm hesaplarını kaydırıp sayfayı taşırıyor. */
+  #root,
+  .print-root {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    background: #fff !important;
+  }
+
+  /* mm ölçüleri iç boşluğu da kapsasın — aksi halde 210mm genişlik + padding
+     sayfayı aşıp ölçeklemeye/boş sayfaya yol açıyor. */
+  .print-root * { box-sizing: border-box; }
+
+  /* Yeşil başlık/banner yazıcıda da renkli çıksın */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* Sayfalama JSX'te yapılıyor (sayfa başına PAGE_ROWS satır, bkz.
+   IrsaliyePrint.jsx) — CSS'in yüksekliği belirlemesine GEREK YOK.
+
+   SABİT YÜKSEKLİK KALDIRILDI (2026-08-13): .print-page 296mm idi, amacı yeşil
+   footer'ı sayfanın dibine yaslamaktı. Ama tarayıcı kendi kenar boşluğunu
+   dayattığında (iOS Safari @page margin:0'ı yok sayıyor) basılabilir alan
+   ~271mm'ye düşüyor; 296mm'lik kutu sığmayınca son eleman olan footer bir
+   sonraki yaprağa taşıyor ve "sadece footer olan boş sayfa" çıkıyordu.
+
+   Yükseklik içerikten geldiği için artık taşma matematiksel olarak imkânsız.
+   Karşılığı: kısa fişlerde footer sayfanın dibinde değil, tablonun hemen
+   altında duruyor. */
+.print-page {
+  font-family: Arial, Helvetica, system-ui, sans-serif;
+  color: #000;
+  font-size: 10pt;
+  line-height: 1.4;
+  width: 210mm;
+  box-sizing: border-box;
+  margin: 0;
+  page-break-after: always;
+  break-after: page;
+}
+
+.print-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+
+/* Header + tablo. Eskiden flex:1 ile footer'ı dibe itiyordu; sabit yükseklik
+   kalkınca gereksizleşti (bkz. .print-page). */
+.print-body {
+  padding: 3mm 6mm 0;
+}
+
+.print-head { position: relative; }
+
+.print-pageno {
+  position: absolute;
+  top: 1mm;
+  right: 0;
+  font-size: 8pt;
+  color: #787878;
+}
+
+.print-title {
+  text-align: center;
+  font-size: 18pt;
+  font-weight: 700;
+  margin: 0 0 3mm;
+}
+
+.print-edited {
+  text-align: center;
+  color: #b40000;
+  font-size: 9pt;
+  margin: -4mm 0 5mm;
+}
+
+/* PDF'teki gibi 2 sütun: [Fiş No | Tarih] / [Pazar No | Pazar Adı] /
+   [İrsaliye Kasa | Toplam Kasa Bakiyesi] / [Toplam Borç ————] */
+.print-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5mm 4mm;
+  padding-bottom: 3mm;
+  border-bottom: 0.4mm solid #000;
+  margin-bottom: 4mm;
+}
+
+/* Borç satırı iki sütunu birden kaplar */
+.print-info-wide { grid-column: 1 / -1; }
+
+/* Bayi borcu kırmızı. print-color-adjust olmadan tarayıcılar "arka plan
+   grafiklerini yazdırma" ayarında rengi atıp siyah basıyor — yeşil footer ile
+   aynı sebep. */
+.print-debt {
+  color: #b40000;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9pt;
+}
+
+.print-table th,
+.print-table td {
+  padding: 2mm;
+  border: 0.2mm solid #e2e8f0;
+}
+
+.print-table thead th {
+  background: #16a34a;
+  color: #fff;
+  font-weight: 700;
+}
+
+.print-table tbody tr:nth-child(even) { background: #f8fafc; }
+
+/* PDF'teki 8mm sabit satır yüksekliği ile aynı */
+.print-table tbody td { height: 8mm; }
+
+.print-table .tl { text-align: left; }
+.print-table .tr { text-align: right; }
+
+/* Yalnızca son sayfada, footer'ın hemen üstünde.
+   break-inside: imza bloğu ile footer ikiye bölünüp yaprak değiştirmesin. */
+/* Yatay hizalama: gövde, imzalar ve footer aynı 6mm kenar payını paylaşır
+   (2026-08-15). Önce üçü ayrı genişlikteydi — tablo 6mm, imzalar 12mm, footer
+   0mm — ve fişin sağ/sol kenarı üç kez farklı yerde bitiyordu. */
+.print-signatures {
+  display: flex;
+  justify-content: space-between;
+  gap: 20mm;
+  padding: 0 6mm 8mm;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.print-sig {
+  flex: 1;
+  text-align: center;
+  font-size: 10pt;
+}
+
+/* İmza için boşluk. 18mm'den 12mm'ye indirildi: en kötü durumda (21 satırlık
+   dolu son sayfa + imzalar + footer) toplam yükseklik tarayıcının dayattığı
+   kenar boşluğuyla birlikte yaprağı aşıyordu. İmza için 12mm yeterli. */
+.print-sig-line {
+  border-top: 0.3mm solid #000;
+  margin: 12mm 0 2mm;
+}
+
+.print-sig span {
+  font-size: 8pt;
+  color: #787878;
+}
+
+/* Footer, gövde ve imzalarla aynı 6mm kenar payında biter (bkz.
+   .print-signatures). Eskiden kenardan kenara tam genişlikti.
+   break-inside: üç satırı bölünüp yaprak değiştirmesin — "sadece footer olan
+   boş sayfa" hatasının ikinci emniyeti. */
+.print-banner {
+  margin: 0 6mm;
+  background: #16a34a;
+  color: #fff;
+  text-align: center;
+  padding: 4mm 3mm;
+  display: grid;
+  gap: 1.5mm;
+  font-size: 8pt;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.print-banner strong { font-size: 9pt; }

@@ -13,6 +13,12 @@ import { api } from '@/services/api'
 //     roles={['ADMIN']}   // opsiyonel: sadece bu rollere export butonu göster
 //     prepare={() => ({ columns: [...], rows: [[...]] })}
 //   />
+//
+// ÇOK SEKMELİ EXCEL: prepare() ek olarak sheets: [{name, columns, rows}]
+// döndürebilir. Excel her grubu ayrı sekmeye yazar; PDF'te sekme kavramı
+// olmadığı için düz rows kullanılır (sekme sırasına dizili olduğundan PDF de
+// bedavaya gruplu çıkar). rows AÇIKÇA verilmeli — sheets'ten türetilirse
+// "Tümü" sekmesi olan çıktılarda satırlar iki kez sayılır.
 export function ExportButton({ title, subtitle, filename, prepare, disabled, roles, resource }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -34,18 +40,26 @@ export function ExportButton({ title, subtitle, filename, prepare, disabled, rol
   async function trigger(type) {
     setOpen(false)
     try {
-      const data = prepare()
-      if (!data || !data.rows?.length) return
-      const args = { title, subtitle, filename, ...data }
+      // await: sayfalanan tablolarda prepare() tüm sayfaları çekmek için async
+      // olabiliyor (bkz. api.fetchAllPages). Senkron prepare'ler etkilenmez.
+      const data = await prepare()
+      if (!data) return
+      const sheets = data.sheets
+      // rows verilmediyse sekmelerden türet (geriye uyum + tek gruplu durum)
+      const rows = data.rows ?? (sheets ? sheets.flatMap((s) => s.rows ?? []) : null)
+      if (!rows?.length) return
+      const columns = data.columns ?? sheets?.[0]?.columns
+      const args = { title, subtitle, filename, ...data, columns, rows }
       // Export tarayıcıda üretiliyor → tek iz bu ping. resource verildiyse
       // indirmeyi denetim kaydına yaz (kim, ne zaman, kaç satır). Log hatası
       // export'u engellemesin.
       if (resource) {
-        api.logExport(resource, data.rows.length).catch(() => {})
+        api.logExport(resource, rows.length).catch(() => {})
       }
       // Lazy load — sadece tıklandığında PDF/XLSX kütüphanelerini yükle
-      const { exportToPDF, exportToXLSX } = await import('@/utils/exportData')
+      const { exportToPDF, exportToXLSX, exportToXLSXSheets } = await import('@/utils/exportData')
       if (type === 'pdf') await exportToPDF(args)
+      else if (sheets?.length) await exportToXLSXSheets(args)
       else await exportToXLSX(args)
     } catch (e) {
       console.error('Export hatası:', e)

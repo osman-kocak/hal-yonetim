@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
 import { audit } from '../utils/audit.js'
 import { networkAllows, NETWORK_DENIED_MESSAGE } from '../middleware/network.js'
+import { UNITS } from '../utils/units.js'
 
 const BCRYPT_ROUNDS = 10
 
@@ -67,7 +68,10 @@ export async function me(req, res, next) {
 const ALLOWED_FIELDS = {
   region:   ['name', 'active'],
   producer: ['name', 'regionId', 'allRegions', 'active'],
-  product:  ['name', 'icon', 'groupName'],
+  // unit: 'CASE' | 'BUNCH' | 'PIECE' — miktar her birimde weight'te durur
+  // (kg / bağ / adet), fiyat da o birimin fiyatıdır (bkz. utils/units.js).
+  // Kasa hesabı birimden bağımsız işler (bkz. utils/cases.js).
+  product:  ['name', 'icon', 'groupName', 'unit'],
   quality:  ['name'],
   market:   ['no', 'name'],
   user:     ['name', 'username', 'roles', 'active'],
@@ -85,8 +89,20 @@ function pick(obj, fields) {
 }
 
 // --- GENERIC CRUD FACTORY ---
+// Alan bazlı ek doğrulamalar. Whitelist mass-assignment'ı kesiyor ama değerin
+// kendisini kontrol etmiyor: geçersiz enum Prisma'da generic 500'e düşüyordu.
+const VALIDATORS = {
+  product(data) {
+    if ('unit' in data && !UNITS.includes(data.unit)) {
+      return 'Birim CASE (kilo), BUNCH (bağ) veya PIECE (adet) olmalı'
+    }
+    return null
+  },
+}
+
 function crudFor(model, orderBy = { id: 'asc' }) {
   const fields = ALLOWED_FIELDS[model] ?? []
+  const validate = VALIDATORS[model]
   return {
     async getAll(req, res, next) {
       try {
@@ -102,6 +118,8 @@ function crudFor(model, orderBy = { id: 'asc' }) {
     async create(req, res, next) {
       try {
         const data = pick(req.body, fields)
+        const invalid = validate?.(data)
+        if (invalid) return res.status(400).json({ error: invalid })
         const record = await prisma[model].create({ data })
         res.status(201).json(record)
       } catch (err) { next(err) }
@@ -109,6 +127,8 @@ function crudFor(model, orderBy = { id: 'asc' }) {
     async update(req, res, next) {
       try {
         const data = pick(req.body, fields)
+        const invalid = validate?.(data)
+        if (invalid) return res.status(400).json({ error: invalid })
         const record = await prisma[model].update({
           where: { id: Number(req.params.id) },
           data,

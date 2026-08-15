@@ -4,7 +4,7 @@ import { useAppStore } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
 import { SelectCard } from '@/components/ui/Card'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
 
 export function ProducerSelect() {
   const activeSession = useAppStore((s) => s.activeSession)
@@ -14,7 +14,19 @@ export function ProducerSelect() {
   const [producers, setProducers] = useState([])
   const [loading, setLoading] = useState(true)
   const selectProducer = useAppStore((s) => s.selectProducer)
+  const backToRegions = useAppStore((s) => s.backToRegions)
   const addToast = useToastStore((s) => s.addToast)
+
+  // Üretici bulunamayan bölgede de görünmeli — yoksa kullanıcı ekranda sıkışıyor.
+  const backButton = (
+    <button
+      type="button"
+      onClick={backToRegions}
+      className="flex items-center gap-1 text-text-muted hover:text-text-primary text-sm mb-6"
+    >
+      <ArrowLeft className="w-4 h-4" /> Bölge listesine dön
+    </button>
+  )
 
   useEffect(() => {
     if (!regionId) { setLoading(false); return }
@@ -36,6 +48,7 @@ export function ProducerSelect() {
   if (!producers.length) {
     return (
       <div className="max-w-xl mx-auto">
+        {backButton}
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
           <AlertTriangle className="w-10 h-10 text-amber-600 mx-auto mb-3" />
           <h2 className="text-lg font-bold text-amber-900 mb-2">
@@ -52,6 +65,7 @@ export function ProducerSelect() {
 
   return (
     <div>
+      {backButton}
       <h2 className="text-xl font-bold text-text-primary mb-2">Üretici Seçin</h2>
       <p className="text-sm text-text-muted mb-6">
         {regionName} bölgesinde {producers.length} üretici

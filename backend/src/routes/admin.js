@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { login, me, regionCrud, producerCrud, productCrud, qualityCrud, marketCrud, userCrud } from '../controllers/adminController.js'
-import { listTransfers } from '../controllers/transferController.js'
+import { listTransfers, listDepoEntries } from '../controllers/transferController.js'
+import { createManualDepoEntry } from '../controllers/entryController.js'
 import {
   listEntries as listLedger,
   createEntry as createLedger,
@@ -28,6 +29,7 @@ import {
   createMovement,
   deleteMovement,
   marketBalances,
+  regionBalances,
 } from '../controllers/caseMovementController.js'
 
 const router = Router()
@@ -106,6 +108,11 @@ router.delete('/exits/:id', deleteExit)
 // Transferler (geçmiş)
 router.get('/transfers', listTransfers)
 
+// Depo — muhasebe de görebilsin diye admin altında (saha /api/depo yalnızca
+// DEPO+ADMIN'e açık, ACCOUNTING oraya erişemiyor).
+router.get('/depo/entries', listDepoEntries)
+router.post('/depo/entry', createManualDepoEntry)
+
 // Finansal cari hesap
 router.get('/ledger', listLedger)
 router.post('/ledger', createLedger)
@@ -119,6 +126,7 @@ router.get('/case-movements', listMovements)
 router.post('/case-movements', createMovement)
 router.delete('/case-movements/:id', deleteMovement)
 router.get('/case-balances/markets', marketBalances)
+router.get('/case-balances/regions', regionBalances)
 
 // Analytics (Dashboard)
 router.get('/analytics/overview', analyticsOverview)

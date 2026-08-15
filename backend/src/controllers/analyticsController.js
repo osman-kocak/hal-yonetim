@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { BUNCH, PIECE, isCountable } from '../utils/units.js'
 
 // Raporlar sadece gerçek mal kabulünü sayar — iade/imha entry'leri hariç
 // (bkz. reportController.HARVEST_ONLY, aynı çift sayım sorunu)
@@ -45,8 +46,11 @@ export async function overview(req, res, next) {
   try {
     const { start, end, days } = rangeFromQuery(req.query)
 
-    const [entrySum, exitCount, ledgerRev, pending, weakEntries] = await Promise.all([
-      prisma.entry.aggregate({
+    const [entryByUnit, exitCount, ledgerRev, pending, weakEntries] = await Promise.all([
+      // Birim bazında: Entry.weight kasa ürününde kilo, bağ ürününde bağ adedi.
+      // Tek toplamda birleştirilirse KPI'daki "Ağırlık" şişer (bkz. utils/units.js).
+      prisma.entry.groupBy({
+        by: ['unit'],
         where: { createdAt: { gte: start, lte: end } },
         _sum: { caseCount: true, weight: true },
         _count: { id: true },
@@ -71,15 +75,21 @@ export async function overview(req, res, next) {
     const pendingToProducers =
       (pendingSums.PRODUCER_DEBT ?? 0) + (pendingSums.PRODUCER_ADJUSTMENT ?? 0) - (pendingSums.PRODUCER_PAYMENT ?? 0)
 
-    const totalEntries = entrySum._count.id
+    const totalEntries = entryByUnit.reduce((s, g) => s + g._count.id, 0)
     const weakRate = totalEntries > 0 ? (weakEntries / totalEntries) * 100 : 0
+    const sumOf = (pred) => entryByUnit.filter(pred).reduce((s, g) => s + (g._sum.weight ?? 0), 0)
+    const kgSum = sumOf((g) => !isCountable(g.unit))
+    const bunchSum = sumOf((g) => g.unit === BUNCH)
+    const pieceSum = sumOf((g) => g.unit === PIECE)
 
     res.json({
       period: { start, end, days },
       kpi: {
         entries: totalEntries,
-        cases: entrySum._sum.caseCount ?? 0,
-        weight: entrySum._sum.weight ?? 0,
+        cases: entryByUnit.reduce((s, g) => s + (g._sum.caseCount ?? 0), 0),
+        weight: Math.round(kgSum * 100) / 100,
+        bunches: bunchSum,
+        pieces: pieceSum,
         exits: exitCount,
         invoiced: Math.round((ledgerRev._sum.amount ?? 0) * 100) / 100,
         weakRate: Math.round(weakRate * 10) / 10,
@@ -98,11 +108,16 @@ export async function trend(req, res, next) {
     const { start, days } = rangeFromQuery(req.query)
 
     // SQL bazlı günlük gruplama PostgreSQL'de date_trunc ile
+    // weight kolonu üç farklı birim taşıyor (CASE→kilo, BUNCH→bağ, PIECE→adet).
+    // FILTER ile ayrılmazsa trend grafiğindeki kg çizgisi bağ/adet sayılarıyla
+    // şişer. Bağ ile adet de ayrı toplanır — toplanabilir sayı değiller.
     const entryRows = await prisma.$queryRaw`
       SELECT
         DATE("createdAt") AS day,
         COALESCE(SUM("caseCount"), 0)::int AS cases,
-        COALESCE(SUM("weight"), 0)::float AS weight,
+        COALESCE(SUM("weight") FILTER (WHERE "unit"::text NOT IN ('BUNCH', 'PIECE')), 0)::float AS weight,
+        COALESCE(SUM("weight") FILTER (WHERE "unit"::text = 'BUNCH'), 0)::float AS bunches,
+        COALESCE(SUM("weight") FILTER (WHERE "unit"::text = 'PIECE'), 0)::float AS pieces,
         COUNT(*)::int AS count
       FROM "Entry"
       WHERE "createdAt" >= ${start}
@@ -138,6 +153,8 @@ export async function trend(req, res, next) {
         entries: Number(e?.count ?? 0),
         cases: Number(e?.cases ?? 0),
         weight: Math.round(Number(e?.weight ?? 0) * 100) / 100,
+        bunches: Number(e?.bunches ?? 0),
+        pieces: Number(e?.pieces ?? 0),
         revenue: Math.round(Number(l?.revenue ?? 0) * 100) / 100,
       })
     }
@@ -158,7 +175,9 @@ export async function byRegion(req, res, next) {
         r."id" AS "regionId",
         r."name" AS "regionName",
         COALESCE(SUM(e."caseCount"), 0)::int AS cases,
-        COALESCE(SUM(e."weight"), 0)::float AS weight,
+        COALESCE(SUM(e."weight") FILTER (WHERE e."unit"::text NOT IN ('BUNCH', 'PIECE')), 0)::float AS weight,
+        COALESCE(SUM(e."weight") FILTER (WHERE e."unit"::text = 'BUNCH'), 0)::float AS bunches,
+        COALESCE(SUM(e."weight") FILTER (WHERE e."unit"::text = 'PIECE'), 0)::float AS pieces,
         COUNT(e."id")::int AS entries
       FROM "Entry" e
       JOIN "RegionSession" rs ON rs."id" = e."regionSessionId"
@@ -172,6 +191,8 @@ export async function byRegion(req, res, next) {
       region: { id: Number(r.regionId), name: r.regionName },
       cases: Number(r.cases),
       weight: Math.round(Number(r.weight) * 100) / 100,
+      bunches: Number(r.bunches),
+      pieces: Number(r.pieces),
       entries: Number(r.entries),
     })))
   } catch (err) { next(err) }
@@ -214,19 +235,21 @@ export async function byProduct(req, res, next) {
     const limit = Math.min(Math.max(Number(req.query.limit ?? 10), 1), 50)
 
     const grouped = await prisma.entry.groupBy({
-      by: ['productId'],
+      by: ['productId', 'unit'],
       where: { createdAt: { gte: start, lte: end }, ...HARVEST_ONLY },
       _sum: { caseCount: true, weight: true },
       _count: { id: true },
       orderBy: { _sum: { weight: 'desc' } },
       take: limit,
     })
-    const productIds = grouped.map((g) => g.productId)
+    const productIds = [...new Set(grouped.map((g) => g.productId))]
     const products = await prisma.product.findMany({ where: { id: { in: productIds } } })
     const map = Object.fromEntries(products.map((p) => [p.id, p]))
 
     res.json(grouped.map((g) => ({
       product: map[g.productId],
+      // BUNCH'ta weight bağ, PIECE'te adet — grafik etiketi buna bakmalı
+      unit: g.unit,
       cases: g._sum.caseCount ?? 0,
       weight: Math.round((g._sum.weight ?? 0) * 100) / 100,
       entries: g._count.id,

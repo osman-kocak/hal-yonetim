@@ -3,7 +3,7 @@ import { useAuthStore } from '@/store/authStore'
 import { hasAnyRole } from '@/utils/roles'
 import { cn } from '@/utils/cn'
 import {
-  LayoutDashboard, MapPin, Package, Store, Star, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert
+  LayoutDashboard, MapPin, Package, Store, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert, ArrowLeft, Warehouse
 } from 'lucide-react'
 
 const nav = [
@@ -11,6 +11,7 @@ const nav = [
   { to: '/admin/fiyatlar', label: 'Günlük Fiyatlar', icon: DollarSign },
   { to: '/admin/finans', label: 'Finans', icon: Wallet },
   { to: '/admin/takip', label: 'Takip & Geçmiş', icon: History },
+  { to: '/admin/depo', label: 'Depo', icon: Warehouse },
   { to: '/admin/kasalar', label: 'Kasa Takip', icon: Boxes },
   { to: '/admin/transferler', label: 'Transferler', icon: ArrowLeftRight },
   { to: '/admin/iadeler', label: 'İadeler', icon: RotateCcw },
@@ -22,7 +23,9 @@ const nav = [
   { to: '/admin/ureticiler', label: 'Üreticiler', icon: User },
   { to: '/admin/urunler', label: 'Ürünler', icon: Package },
   { to: '/admin/pazarlar', label: 'Pazarlar', icon: Store },
-  { to: '/admin/kaliteler', label: 'Kaliteler', icon: Star },
+  // Kaliteler menüden kaldırıldı (2026-08-13): kalite özelliği kullanılmıyor,
+  // fiyat ürün başına tek. Route duruyor — geçmiş kayıtlardaki kalite adlarını
+  // düzeltmek gerekirse /admin/kaliteler adresinden hâlâ açılabilir.
 ]
 
 export function AdminLayout() {
@@ -35,15 +38,31 @@ export function AdminLayout() {
   return (
     <div className="min-h-screen bg-bg flex">
       {/* Sidebar */}
-      <aside className="w-56 bg-white border-r border-border flex flex-col shrink-0">
+      {/* h-screen + sticky: menü 16 öğeye çıkınca aside ekranı aşıyor ve alttaki
+          "Ana Sayfaya Dön" / "Çıkış" ekranın dışına itiliyordu. */}
+      <aside className="w-56 bg-white border-r border-border flex flex-col shrink-0 h-screen sticky top-0">
+        {/* Geri oku başlıkta: menünün DİBİNDEKİ "Ana Sayfaya Dön" uzun listede
+            gözden kaçıyor. Diğer panellerle (Depo, Kasacı, İade) aynı desen. */}
         <div className="p-5 border-b border-border">
-          <p className="text-xs text-text-muted">HAL YÖNETİM</p>
-          <h2 className="font-bold text-text-primary">Admin Paneli</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/')}
+              className="p-1.5 -ml-1.5 rounded-lg hover:bg-gray-100 text-text-muted shrink-0"
+              title="Ana sayfaya dön"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="min-w-0">
+              <p className="text-xs text-text-muted">HAL YÖNETİM</p>
+              <h2 className="font-bold text-text-primary">Admin Paneli</h2>
+            </div>
+          </div>
           {user && (
-            <p className="text-xs text-text-muted mt-1 truncate">{user.name} ({user.username})</p>
+            <p className="text-xs text-text-muted mt-2 truncate">{user.name} ({user.username})</p>
           )}
         </div>
-        <nav className="flex-1 p-3 flex flex-col gap-1">
+        {/* min-h-0: flex çocuğu varsayılan olarak küçülmez, overflow tetiklenmez */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-1">
           {nav.filter((item) => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
