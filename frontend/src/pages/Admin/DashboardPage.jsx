@@ -90,7 +90,11 @@ export function DashboardPage() {
                 Mal → giriş kayıtları, İrsaliye → irsaliyeler, Kasa → kasa takip,
                 Ciro → finans. */}
             <Kpi label="Giriş" value={formatNum(data.overview?.kpi.entries)} icon={Package} color="primary" to="/admin/takip?tab=girisler" />
-            <Kpi label="Kasa" value={formatNum(data.overview?.kpi.cases)} icon={Package} color="primary" to="/admin/kasalar" />
+            {/* "Giren Kasa": seçili DÖNEMDE giren, borç doğuran kasa —
+                siyah/karton kasa hariç (bkz. backend utils/cases.js).
+                Kasa Takip'teki rakam ANLIK BAKİYE, bu ise dönemsel akış;
+                etiket bu farkı belli etsin diye "Kasa" değil "Giren Kasa". */}
+            <Kpi label="Giren Kasa" value={formatNum(data.overview?.kpi.cases)} icon={Package} color="primary" to="/admin/kasalar" />
             {/* Ağırlık yalnızca kilo ürünlerinin kilosu; bağ ve adet ayrı
                 kartlarda (backend splitByUnit ile üçünü ayırıyor). */}
             <Kpi label="Ağırlık" value={formatNum(data.overview?.kpi.weight, 1)} unit="kg" icon={Scale} color="primary" to="/admin/takip?tab=girisler" />

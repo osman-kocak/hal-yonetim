@@ -49,8 +49,12 @@ export async function overview(req, res, next) {
     const [entryByUnit, exitCount, ledgerRev, pending, weakEntries] = await Promise.all([
       // Birim bazında: Entry.weight kasa ürününde kilo, bağ ürününde bağ adedi.
       // Tek toplamda birleştirilirse KPI'daki "Ağırlık" şişer (bkz. utils/units.js).
+      // disposableCase gruplamaya dahil: "Kasa" KPI'ı kasa MUHASEBESİ rakamı
+      // olmalı, siyah/karton kasa hiçbir bakiyeye girmiyor (bkz. utils/cases.js
+      // → trackedCases). Miktar/giriş sayısı toplamları bundan etkilenmiyor,
+      // onlar fiziksel hacim.
       prisma.entry.groupBy({
-        by: ['unit'],
+        by: ['unit', 'disposableCase'],
         where: { createdAt: { gte: start, lte: end } },
         _sum: { caseCount: true, weight: true },
         _count: { id: true },
@@ -86,7 +90,12 @@ export async function overview(req, res, next) {
       period: { start, end, days },
       kpi: {
         entries: totalEntries,
-        cases: entryByUnit.reduce((s, g) => s + (g._sum.caseCount ?? 0), 0),
+        // Siyah/karton kasa HARİÇ: bu sayı bayiye/bölgeye borç doğuran kasa.
+        // Ham fiziksel toplam istenirse ayrı bir alan eklenmeli — karıştırılırsa
+        // Kasa Takip'teki bakiyeyle arasındaki fark açıklanamaz hale gelir.
+        cases: entryByUnit
+          .filter((g) => !g.disposableCase)
+          .reduce((s, g) => s + (g._sum.caseCount ?? 0), 0),
         weight: Math.round(kgSum * 100) / 100,
         bunches: bunchSum,
         pieces: pieceSum,
