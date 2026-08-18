@@ -95,9 +95,17 @@ model RegionSession {
   regionId  Int
   status    SessionStatus @default(ACTIVE)
   entries   Entry[]
+  // Oturumun GERÇEK açılış anı. createdAt satırın yazıldığı andır; offline
+  // açılan oturum saatler sonra sync edilebildiği için ikisi ayrışıyor.
+  openedAt  DateTime?
   createdAt DateTime      @default(now())
 
   @@index([regionId, status])
+  // Bölge başına TEK açık oturum. Partial unique index migration'da:
+  //   UNIQUE (regionId) WHERE status = 'ACTIVE'
+  // Prisma şemasında koşullu index ifade edilemiyor, bu yüzden burada yalnızca
+  // yorum olarak duruyor — kural veritabanında zorlanıyor. Offline sync'te iki
+  // cihaz aynı bölgeyi aynı anda açabildiği için uygulama katmanı yetmiyordu.
 }
 
 model Product {

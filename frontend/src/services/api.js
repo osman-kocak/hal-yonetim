@@ -127,6 +127,35 @@ async function cached(key, fetcher) {
   }
 }
 
+// Mal kabul akışının offline çalışması için gereken TÜM referans veriyi önden
+// indirir (online'ken).
+//
+// NEDEN: cached() yalnızca ekranın o an istediğini saklıyordu. Operatör
+// online'ken yalnızca Girne'ye girdiyse, kesintide Güzelyurt'u açtığında üretici
+// listesi boş geliyor ve ekran "bu bölgeye üretici atanmamış" diyordu — yanlış
+// bilgi, aslında veri hiç indirilmemişti.
+//
+// Ağ hatası yutuluyor: prefetch bir iyileştirme, akışı durdurmamalı. Zaten
+// kesintideysek cache'te ne varsa onunla çalışılır.
+export async function prefetchEntryRefData() {
+  try {
+    const [regions] = await Promise.all([
+      api.getRegions(),
+      api.getProducts(),
+      api.getMarkets(),
+    ])
+    // Bölge sayısı az (≈8) ve üretici listesi küçük; hepsini almak birkaç yüz
+    // KB. Karşılığında kesintide HANGİ bölge açılırsa açılsın form dolu geliyor.
+    await Promise.all(
+      (Array.isArray(regions) ? regions : []).map((r) =>
+        api.getProducersForRegion(r.id).catch(() => null)
+      )
+    )
+  } catch {
+    // sessiz: bağlantı yoksa zaten cache'ten çalışılıyor
+  }
+}
+
 export const api = {
   // Region (bölge oturumu)
   // NOT: bunlar offline ÇALIŞMAZ. Kesintide yeni bölge oturumu açılamaz —

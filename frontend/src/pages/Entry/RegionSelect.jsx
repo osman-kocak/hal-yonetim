@@ -32,16 +32,37 @@ export function RegionSelect() {
       // sayfa yenilenince operatör mal kabul formuna hiç ulaşamıyordu — offline
       // kuyruk da boşa çıkıyordu.
       //
-      // Yeni bölge açmak offline MÜMKÜN DEĞİL: oturum id'si sunucudan geliyor.
+      // Kesintide YENİ BÖLGE de açılabiliyor (2026-08-18): istemci oturum
+      // numarası uydurmuyor, "numarasız oturum" ile çalışıyor. Mal kabul
+      // partisi sunucuya regionId ile gidiyor ve oturumu SUNUCU çözüyor —
+      // açık oturum varsa o, yoksa yeni (bkz. backend resolveSessionForRegion).
       if (isNetworkError(err)) {
         const hit = await cacheGet(ACTIVE_SESSION_KEY)
         const cached = hit?.data
+        // Aynı bölgenin daha önce açılmış oturumu elimizdeyse onu kullan —
+        // numarası bilindiği için kayıtlar doğrudan ona bağlanır.
         if (cached?.id && cached.regionId === region.id) {
           startSession(cached)
           addToast('Bağlantı yok — açık bölgeye çevrimdışı devam ediliyor', 'warning')
           return
         }
-        addToast('Bağlantı yok — kesintide yalnızca açık bölgeye devam edilebilir', 'error')
+        startSession({
+          // id YOK: bu oturumun numarası henüz üretilmedi. EntryForm bunu görüp
+          // partiyi regionId ile gönderiyor.
+          id: null,
+          regionId: region.id,
+          region: { id: region.id, name: region.name },
+          status: 'ACTIVE',
+          // Oturumun gerçek açılış anı: sync saatler sonra olabilir, sunucu
+          // createdAt yerine bunu yazsın diye taşınıyor.
+          openedAt: new Date().toISOString(),
+          offline: true,
+        })
+        addToast(
+          `Bağlantı yok — ${region.name} çevrimdışı açıldı. Girişler kuyruğa alınır, ` +
+          'bağlantı gelince bölge oturumuyla birlikte gönderilir.',
+          'warning'
+        )
         return
       }
       addToast('Bölge oturumu başlatılamadı', 'error')

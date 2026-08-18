@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '@/services/api'
+import { api, prefetchEntryRefData } from '@/services/api'
 import { useAppStore } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
 import { RegionSelect } from './RegionSelect'
@@ -29,6 +29,11 @@ export function EntryPage() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [step, selectedProduct?.id])
+
+  // Mal kabul ekranı açılırken tüm referans veriyi tazele. Bu ekran kesintide
+  // çalışmak zorunda; hangi bölgenin açılacağı önceden bilinmediği için
+  // hepsinin üreticisi indiriliyor (bkz. prefetchEntryRefData).
+  useEffect(() => { prefetchEntryRefData() }, [])
   const [completing, setCompleting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [summary, setSummary] = useState(null) // { entryCount, totalCases, totalWeight, producerCount }
@@ -38,6 +43,12 @@ export function EntryPage() {
     setSummary(null)
     setConfirmOpen(true)
     try {
+      // Numarasız (offline açılmış) oturumun sunucuda karşılığı yok — özet
+      // çekilemez. İstek atıp 400 yemek yerine bilinmiyor olarak gösteriliyor.
+      if (!activeSession.id) {
+        setSummary(null)
+        return
+      }
       const list = (await api.getSessionEntries(activeSession.id)) ?? []
       // Bağ/adet kayıtlarında weight SAYI tutuyor — kilo toplamına katılmamalı,
       // yoksa "Toplam kilo" şişer. Üçü ayrı kova (bkz. utils/formatters → sumQty).
@@ -59,6 +70,18 @@ export function EntryPage() {
   }
 
   async function handleComplete() {
+    // Oturum sunucuda yoksa kapatılacak bir şey de yok. Kuyruktaki kayıtlar
+    // gönderilmeden bölgeyi kapatmak, girişlerin bağlanacağı oturumu erkenden
+    // kapatmak demek olurdu.
+    if (!activeSession.id) {
+      addToast(
+        'Bu bölge çevrimdışı açıldı — önce bağlantının gelmesini ve kayıtların ' +
+        'gönderilmesini bekleyin, sonra bölgeyi tamamlayın.',
+        'error'
+      )
+      setConfirmOpen(false)
+      return
+    }
     setCompleting(true)
     try {
       await api.completeRegion(activeSession.id)
@@ -123,8 +146,18 @@ export function EntryPage() {
         {step === 'product_select' && <ProductSelect />}
         {step === 'entry_form' && <EntryForm />}
 
+        {/* Son Girişler sunucudan oturum numarasıyla okunuyor. Offline açılan
+            bölgede numara henüz yok — liste yerine durumu açıkça söylüyoruz,
+            boş liste "hiç giriş yapılmadı" izlenimi verirdi. */}
         {activeSession && step !== 'region_select' && (
-          <RecentEntriesList sessionId={activeSession.id} />
+          activeSession.id ? (
+            <RecentEntriesList sessionId={activeSession.id} />
+          ) : (
+            <p className="mt-6 text-sm text-text-muted bg-white border border-border rounded-2xl p-4">
+              Bu bölge çevrimdışı açıldı. Girdiğiniz satırlar kuyrukta bekliyor;
+              bağlantı gelip kayıtlar gönderildikten sonra burada listelenecek.
+            </p>
+          )
         )}
       </main>
 

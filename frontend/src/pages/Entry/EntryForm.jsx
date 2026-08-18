@@ -325,8 +325,14 @@ export function EntryForm() {
   // clientId ile düşünce backend ikinci kaydı yazmıyor (bkz. offlineDb.queueAdd).
   async function persistEntries() {
     const clientId = newClientId()
+    // Oturum numarası varsa onu gönder; offline açılmış bölgede numara YOK, o
+    // zaman bölge kimliği gidiyor ve oturumu sunucu çözüyor (açık varsa o,
+    // yoksa yeni). openedAt: oturumun gerçek açılış anı — sync saatler sonra
+    // olabilir, sunucu createdAt yerine bunu yazsın.
     const payload = {
-      regionSessionId: activeSession.id,
+      ...(activeSession.id
+        ? { regionSessionId: activeSession.id }
+        : { regionId: activeSession.regionId, openedAt: activeSession.openedAt }),
       productId: selectedProduct.id,
       producerId: selectedProducer?.id,
       weak,

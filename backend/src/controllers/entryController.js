@@ -22,6 +22,36 @@ async function validateProducerForSession(producerId, session) {
   return null
 }
 
+// Offline mal kabul için oturum çözümü.
+//
+// NEDEN: kesintide RegionSession.id üretilemiyor (numarayı veritabanı veriyor),
+// bu yüzden operatör yeni bölgeye geçemiyordu. İstemci artık id uydurmuyor;
+// partinin hangi bölgeye ait olduğunu (regionId) gönderiyor, oturumu SUNUCU
+// çözüyor — startRegion ile aynı kural: açık oturum varsa o, yoksa yeni.
+//
+// Kuyrukta bağımlılık grafiği gerekmiyor: her parti bağımsız, düz FIFO korunuyor.
+// İki cihaz aynı bölgeyi offline açsa bile sync'te ikisi de AYNI oturuma düşer —
+// zaten istenen davranış.
+//
+// YARIŞ: iki istek aynı anda "açık oturum yok" görebilir. Veritabanındaki
+// partial unique index (regionId WHERE status='ACTIVE') ikinciyi P2002 ile
+// durduruyor; o taraf mevcut oturumu okuyup devam ediyor.
+async function resolveSessionForRegion(tx, regionId, openedAt) {
+  const acik = await tx.regionSession.findFirst({
+    where: { regionId, status: 'ACTIVE' },
+  })
+  if (acik) return acik
+  try {
+    return await tx.regionSession.create({
+      data: { regionId, openedAt: openedAt ?? new Date() },
+    })
+  } catch (err) {
+    if (err?.code !== 'P2002') throw err
+    // Yarışı kaybettik: karşı taraf oturumu açtı, onu kullan.
+    return tx.regionSession.findFirst({ where: { regionId, status: 'ACTIVE' } })
+  }
+}
+
 // Log özeti: kayıt silinse bile denetim satırı tek başına anlaşılabilir olmalı.
 function describeEntry(e) {
   const market = e?.market ? (e.market.no === 0 ? 'Depo' : `Pazar #${e.market.no}`) : '—'
@@ -267,10 +297,14 @@ export async function createEntryBatch(req, res, next) {
     // weak ve disposableCase batch seviyesinde: tek ürün için N satır pazar
     // dağılımı giriliyor, ikisi de o partinin tamamına ait.
     const {
-      regionSessionId, productId, producerId, qualityId, weak, disposableCase, bQuality, entries,
+      regionSessionId, regionId, openedAt, productId, producerId, qualityId,
+      weak, disposableCase, bQuality, entries,
     } = req.body
 
-    if (!regionSessionId || !productId || !entries?.length) {
+    // regionSessionId YA DA regionId: offline açılan bölgede oturum numarası
+    // olmadığı için istemci bölgeyi gönderiyor, oturumu sunucu çözüyor
+    // (bkz. resolveSessionForRegion).
+    if ((!regionSessionId && !regionId) || !productId || !entries?.length) {
       return res.status(400).json({ error: 'Tüm alanlar zorunludur' })
     }
 
@@ -281,11 +315,29 @@ export async function createEntryBatch(req, res, next) {
       if (seen) return res.json({ alreadySynced: true, recordIds: seen.recordIds })
     }
 
-    const session = await prisma.regionSession.findUnique({
-      where: { id: Number(regionSessionId) },
-    })
-    if (!session) {
-      return res.status(400).json({ error: 'Bölge oturumu bulunamadı' })
+    // İki yol: oturum numarası varsa (online akış) doğrudan okunur; yoksa
+    // (offline açılan bölge) bölgeden çözülür.
+    let session
+    if (regionSessionId) {
+      session = await prisma.regionSession.findUnique({
+        where: { id: Number(regionSessionId) },
+      })
+      if (!session) {
+        return res.status(400).json({ error: 'Bölge oturumu bulunamadı' })
+      }
+    } else {
+      const region = await prisma.region.findUnique({
+        where: { id: Number(regionId) },
+        select: { id: true, active: true },
+      })
+      if (!region) return res.status(404).json({ error: 'Bölge bulunamadı' })
+      if (!region.active) return res.status(400).json({ error: 'Pasif bölgeye giriş yapılamaz' })
+      session = await resolveSessionForRegion(
+        prisma,
+        Number(regionId),
+        openedAt ? new Date(openedAt) : null,
+      )
+      if (!session) return res.status(500).json({ error: 'Bölge oturumu açılamadı' })
     }
     // Oturum kapanmışsa normalde kayıt kabul edilmez. TEK İSTİSNA offline kuyruk:
     // operatör kesintide giriş yapar, bağlantı gelince bölgeyi tamamlar ve kuyruk
@@ -299,8 +351,10 @@ export async function createEntryBatch(req, res, next) {
     // Pencere oturumun AÇILIŞINDAN (createdAt) sayılıyor: modelde completedAt
     // yok ve bir bölge oturumu aynı gün açılıp kapanıyor. Oturum bir günden uzun
     // açık kaldıysa offline kayıt reddedilir — bilinçli sıkı taraf.
+    // Bu kontrol yalnızca OTURUM NUMARASIYLA gelen akışta anlamlı: bölgeden
+    // çözülen oturum tanımı gereği zaten ACTIVE (yoksa yenisi açılıyor).
     const GRACE_MS = 24 * 60 * 60 * 1000
-    if (session.status !== 'ACTIVE') {
+    if (regionSessionId && session.status !== 'ACTIVE') {
       const fresh = Date.now() - new Date(session.createdAt).getTime() < GRACE_MS
       if (!clientId || !fresh) {
         return res.status(400).json({ error: 'Aktif bölge oturumu bulunamadı' })
@@ -378,7 +432,7 @@ export async function createEntryBatch(req, res, next) {
       for (const e of entries) {
         const entry = await tx.entry.create({
           data: {
-            regionSessionId: Number(regionSessionId),
+            regionSessionId: session.id,   // çözülen oturum (offline'da bölgeden gelmiş olabilir)
             productId: Number(productId),
             producerId: producerId ? Number(producerId) : null,
             qualityId: qualityId ? Number(qualityId) : null,
