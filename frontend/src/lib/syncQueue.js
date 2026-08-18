@@ -24,13 +24,21 @@ import { useQueueStore } from '@/store/queueStore'
 import { useConnectionStore } from '@/store/connectionStore'
 
 // kind → gönderim fonksiyonu. Kuyruğa yalnızca burada tanımlı işler girebilir.
-// Faz 1 kapsamı: mal kabul batch'i. Bölge oturumu açma/kapama BİLİNÇLİ olarak
-// dışarıda: oturum offline açılırsa entry'lerin bağlanacağı regionSessionId
-// olmaz, kuyruğa bağımlılık grafiği (session → entries) gerekir. Aktif oturum
-// varken kesinti olursa mal kabul çalışır; kesinti sırasında YENİ BÖLGE
-// açılamaz.
+//
+// Faz 1: mal kabul batch'i. Faz 2: bayiden iade.
+//
+// Bölge oturumu açma/kapama BİLİNÇLİ olarak dışarıda: oturum offline açılırsa
+// entry'lerin bağlanacağı regionSessionId olmaz, kuyruğa bağımlılık grafiği
+// (session → entries) gerekir. Aktif oturum varken kesinti olursa mal kabul
+// çalışır; kesinti sırasında YENİ BÖLGE açılamaz.
+//
+// Çıkış (irsaliye) da dışarıda: kağıda basılan fiş numarası sunucudan geliyor
+// ve iki cihaz aynı malı satarsa sync'te çakışıyor — ayrı bir faz.
 const HANDLERS = {
   ENTRY_BATCH: (payload) => http.post('/entry/batch', payload),
+  // Faz 2: bayiden iade. Cari hesaba KREDİ yazdığı için çift kayıt doğrudan
+  // para hatası — backend clientId'yi SyncedBatch'te tutuyor.
+  RETURN_BATCH: (payload) => http.post('/depo/return/batch', payload),
 }
 
 let flushing = false

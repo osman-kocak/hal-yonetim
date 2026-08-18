@@ -723,7 +723,10 @@ async function prepareReturnRow(row, { market, depoMarket, discardMarket, prefix
 }
 
 // Hazırlanmış satırı yazar: Entry (+Transfer) + LedgerEntry (+CaseMovement) + ReturnRecord
-async function writeReturnRow(tx, p, { market, createdBy }) {
+// occurredAt: iadenin GERÇEK zamanı. Offline kuyrukta bekleyen kayıt saatler
+// sonra gönderilebiliyor; sync anını yazmak cari hesabı yanlış güne düşürür.
+// Verilmezse şimdi — tek satırlık iade (createReturn) bu yolu kullanıyor.
+async function writeReturnRow(tx, p, { market, createdBy, occurredAt = new Date() }) {
   // İmha da dahil her durumda entry oluşur. Eskiden imhada hiç entry
   // yazılmıyordu — mal kayıtlardan buharlaşıyor, fire raporlanamıyordu.
   const entry = await tx.entry.create({
@@ -772,7 +775,7 @@ async function writeReturnRow(tx, p, { market, createdBy }) {
       amount: -p.amount,
       marketId: market.id,
       note: noteText,
-      occurredAt: new Date(),
+      occurredAt,
       createdBy,
     },
   })
@@ -783,7 +786,7 @@ async function writeReturnRow(tx, p, { market, createdBy }) {
   const trackedQty = trackedCases({ caseCount: p.c, disposableCase: p.disposableCase })
   const caseMove = trackedQty > 0
     ? await tx.caseMovement.create({
-      data: { type: 'MARKET_IN', qty: trackedQty, marketId: market.id, note: noteText, createdBy },
+      data: { type: 'MARKET_IN', qty: trackedQty, marketId: market.id, note: noteText, occurredAt, createdBy },
     })
     : null
 
@@ -824,12 +827,37 @@ async function resolveReturnContext(fromMarketId) {
 // Bayiden TOPLU iade kabul: tek bayi, çok satır, TEK transaction.
 // Hepsi ya yazılır ya hiçbiri — cari hesaba yarım işlenmiş iade kalmaz.
 export async function createReturnBatch(req, res, next) {
+  // clientId try DIŞINDA: catch bloğu da okuyor (P2002 yarış durumu).
+  // Offline kuyruğun idempotency anahtarı — mal kabuldeki ENTRY_BATCH ile aynı
+  // mekanizma (bkz. SyncedBatch). İade cari hesaba KREDİ yazdığı için çift
+  // kayıt doğrudan para hatası olur.
+  const { clientId } = req.body
+
   try {
-    const { fromMarketId, rows } = req.body
+    const { fromMarketId, rows, occurredAt } = req.body
     if (!fromMarketId) return res.status(400).json({ error: 'İade veren bayi seçilmeli' })
     if (!Array.isArray(rows) || !rows.length) {
       return res.status(400).json({ error: 'En az bir iade satırı gerekli' })
     }
+
+    // Bu parti daha önce işlendi mi? Ucuz ön kontrol; asıl garanti
+    // transaction'daki PK ihlali.
+    if (clientId) {
+      const seen = await prisma.syncedBatch.findUnique({ where: { clientId } })
+      if (seen) return res.json({ alreadySynced: true, recordIds: seen.recordIds, count: seen.recordIds.length })
+    }
+
+    // İadenin GERÇEK zamanı. Offline kuyrukta bekleyen kayıt saatler sonra
+    // gönderilebiliyor; sync anını yazmak cari hesabı yanlış güne düşürür.
+    // İstemci saatine körü körüne güvenilmiyor: gelecekteki ya da 7 günden eski
+    // tarih reddedilip sunucu saatine düşülüyor.
+    const clientTime = occurredAt ? new Date(occurredAt) : null
+    const now = Date.now()
+    const gecerli = clientTime
+      && !Number.isNaN(clientTime.getTime())
+      && clientTime.getTime() <= now + 60_000
+      && clientTime.getTime() > now - 7 * 24 * 60 * 60 * 1000
+    const islemZamani = gecerli ? clientTime : new Date()
 
     const ctx = await resolveReturnContext(fromMarketId)
     // Doğrulama transaction DIŞINDA: hata olursa hiç transaction açılmasın ve
@@ -841,8 +869,23 @@ export async function createReturnBatch(req, res, next) {
 
     const createdBy = req.user?.name || req.user?.username || 'Depo'
     const results = await prisma.$transaction(async (tx) => {
+      // İLK ADIM idempotency kaydı: PK ihlali burada patlarsa hiçbir satır
+      // yazılmaz, yarış durumu kapanır.
+      if (clientId) {
+        await tx.syncedBatch.create({
+          data: { clientId, kind: 'RETURN_BATCH', recordIds: [], createdBy },
+        })
+      }
       const out = []
-      for (const p of prepared) out.push(await writeReturnRow(tx, p, { market: ctx.market, createdBy }))
+      for (const p of prepared) {
+        out.push(await writeReturnRow(tx, p, { market: ctx.market, createdBy, occurredAt: islemZamani }))
+      }
+      if (clientId) {
+        await tx.syncedBatch.update({
+          where: { clientId },
+          data: { recordIds: out.map((r) => r.returnRecord?.id).filter(Boolean) },
+        })
+      }
       return out
     })
 
@@ -860,7 +903,15 @@ export async function createReturnBatch(req, res, next) {
         .filter(Boolean),
       returns: results,
     })
-  } catch (err) { next(err) }
+  } catch (err) {
+    // Eşzamanlı retry: aynı clientId'yi iki istek birden yazmaya çalıştı.
+    // Kaybeden taraf hata değil "zaten yazıldı" görmeli.
+    if (clientId && err?.code === 'P2002') {
+      const seen = await prisma.syncedBatch.findUnique({ where: { clientId } })
+      return res.json({ alreadySynced: true, recordIds: seen?.recordIds ?? [], count: seen?.recordIds?.length ?? 0 })
+    }
+    next(err)
+  }
 }
 
 // Bayiden iade kabul (tek satır). Mal üç yerden birine gider:

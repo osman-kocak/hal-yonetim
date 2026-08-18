@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, errorMessage } from '@/services/api'
+import { api, errorMessage, isNetworkError } from '@/services/api'
+import { enqueue } from '@/lib/syncQueue'
+import { newClientId } from '@/lib/offlineDb'
 import { useAuthStore } from '@/store/authStore'
 import { useToastStore } from '@/store/toastStore'
 import { Button } from '@/components/ui/Button'
@@ -69,7 +71,11 @@ export function ReturnPage() {
     setBalanceLoading(true)
     api.getMarketBalance(id)
       .then(setBalance)
-      .catch(() => setBalance({ products: [] })) // bakiye alınamazsa uyarı yok, form çalışsın
+      // ULAŞILAMADI ile "hiç gönderilmemiş" AYNI ŞEY DEĞİL. Eskiden ikisi de
+      // boş liste oluyordu ve ekran kesintide "bu bayiye hiç irsaliye
+      // kesilmemiş" diyordu — operatöre yanlış bilgi. Artık ayrı işaretleniyor:
+      // offline'da kontrol yapılamadığı söyleniyor, uydurma uyarı verilmiyor.
+      .catch(() => setBalance({ products: [], unavailable: true }))
       .finally(() => setBalanceLoading(false))
   }
 
@@ -108,7 +114,7 @@ export function ReturnPage() {
   // düzeltmeleri de keserdi. Ama operatör bilerek onaylasın.
   const supheli = readySlots
     .map((s) => {
-      if (!balance) return null
+      if (!balance || balance.unavailable) return null
       const info = sentInfo(s.productId)
       const ad = products.find((p) => String(p.id) === String(s.productId))?.name ?? '?'
       if (!info) return `${ad}: bu bayiye son 7 günde gönderilmemiş`
@@ -166,8 +172,18 @@ export function ReturnPage() {
     try {
       // TEK istek, TEK transaction: satırlardan biri patlarsa hiçbiri yazılmaz.
       // Sıralı ayrı isteklerde yarısı cari hesaba işlenip yarısı kalırdı.
-      const result = await api.createDepoReturnBatch({
+      //
+      // clientId BURADA üretiliyor ve ilk denemeye de gidiyor: timeout aldığımızda
+      // sunucu kaydı yazıp yanıtı kaybetmiş olabilir. Kuyruğa aynı anahtarla
+      // düşünce backend ikinci kez yazmıyor (bkz. SyncedBatch) — iade cari hesaba
+      // kredi yazdığı için çift kayıt doğrudan para hatası olurdu.
+      //
+      // occurredAt: iadenin gerçek zamanı. Kuyrukta bekleyen kayıt saatler sonra
+      // gidebiliyor; sunucu sync anını yazsa cari hesap yanlış güne düşerdi.
+      const clientId = newClientId()
+      const payload = {
         fromMarketId: Number(fromMarketId),
+        occurredAt: new Date().toISOString(),
         rows: readySlots.map((s) => {
           return {
             productId: Number(s.productId),
@@ -182,7 +198,25 @@ export function ReturnPage() {
             note: note.trim() || undefined,
           }
         }),
-      })
+      }
+
+      let result
+      try {
+        result = await api.createDepoReturnBatch({ ...payload, clientId })
+      } catch (err) {
+        // Validasyon/yetki hatası kuyruğa GİRMEZ: tekrar denemek aynı hatayı
+        // verir, operatör düzeltmeli. Form da temizlenmez.
+        if (!isNetworkError(err)) throw err
+        await enqueue('RETURN_BATCH', payload, clientId)
+        addToast(
+          `${readySlots.length} iade kuyruğa alındı — bağlantı gelince gönderilecek. ` +
+          'Uygulamayı kapatmayın. Bayi borcu, kayıt sunucuya ulaşınca düşecek.',
+          'warning'
+        )
+        resetForm()
+        return
+      }
+
       const bayi = dealerMarkets.find((m) => String(m.id) === String(fromMarketId))
       addToast(
         `${result.count} iade kaydedildi · ${bayi?.name ?? 'Bayi'} borcundan ` +
@@ -271,7 +305,15 @@ export function ReturnPage() {
               {balanceLoading && (
                 <p className="text-xs text-text-muted">Bayinin son 7 günlük sevkiyatı yükleniyor…</p>
               )}
-              {balance && balance.products?.length === 0 && (
+              {/* Kontrol yapılamadı (kesinti): sessiz kalmak yerine açıkça söyle —
+                  operatör hangi korumanın devre dışı olduğunu bilmeli. */}
+              {balance?.unavailable && (
+                <div className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-text-secondary">
+                  ⚠ Bağlantı yok — <strong className="text-text-primary">gönderi geçmişi kontrolü yapılamadı</strong>.
+                  İade kaydedilebilir ama "bu ürün bu bayiye gönderilmiş mi" uyarısı çalışmaz, ürünü ve miktarı iki kez kontrol edin.
+                </div>
+              )}
+              {balance && !balance.unavailable && balance.products?.length === 0 && (
                 <div className="bg-error/10 border border-error/40 rounded-xl p-3 flex gap-2 items-start">
                   <AlertTriangle className="w-4 h-4 text-error shrink-0 mt-0.5" />
                   <p className="text-sm text-error font-medium">
