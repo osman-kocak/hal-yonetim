@@ -21,7 +21,9 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 📊 **Cari hesap** — Bayi alacak (irsaliye), üretici borç (manuel + ödeme)
 - 📈 **Raporlar** — Günlük, pazar bazlı, ürün bazlı, top products
 - 📥 **PDF + XLSX export** — Tüm liste sayfalarında (jsPDF + SheetJS, lazy-loaded). `/admin/takip` çıktısı **çok sekmeli**: irsaliyeler pazara, girişler bölgeye göre ayrı sekmelerde + baştaki "Tümü" sekmesi
-- 📡 **Bağlantı izleme** — Ağ hatasında 3 kez üstel beklemeli retry; kesinti sürerse ekranın üstünde kalıcı uyarı şeridi. Kesinti süreleri `localStorage`'a yazılır (`hal_outages`) — offline mimarisi kararı bu veriye dayanacak. Mal kabul formu `sessionStorage`'da taslak tutar, yenileme/kesintide girilen satırlar kaybolmaz
+- 📡 **Offline mal kabul (Faz 1)** — Kesintide mal kabul girişleri iPad'de **IndexedDB kuyruğuna** yazılır, bağlantı gelince FIFO sırayla gönderilir. Form önce doğrudan göndermeyi dener, YALNIZCA ağ hatasında kuyruğa düşer (validasyon hatası kuyruğa girmez). Her istek `clientId` taşır ve backend `SyncedBatch` ile aynı kaydı iki kez yazmaz — timeout "istek gitmedi" demek değil. Service worker uygulama kabuğunu önbelleğe alır: sunucu tamamen kapalıyken bile ekran açılır, pazar/ürün/üretici listeleri cache'ten gelir. **Sınırlar:** çıkış (irsaliye) ve iade offline çalışmaz; kesintide yeni bölge oturumu açılamaz (açık olana devam edilir); iOS'ta arka plan senkronu olmadığı için kuyruk yalnızca uygulama ön plandayken ilerler. Ayrıntı: [`frontend/src/lib/syncQueue.js`](frontend/src/lib/syncQueue.js)
+- 📡 **Bağlantı izleme** — Ağ hatasında 3 kez üstel beklemeli retry; kesinti sürerse ekranın üstünde kalıcı şerit + 5 sn sonra bir kez uyarı penceresi. Kesinti süreleri `localStorage`'a yazılır (`hal_outages`). Mal kabul formu `sessionStorage`'da taslak tutar
+- 🔐 **Çıkış ekranı kilidi** — Bir pazarın çıkış ekranını aynı anda tek kişi açar (`ExitLock`, pazar başına tek satır). İkinci kişide ekran **salt okunur** gelir ve kimin çalıştığını yazar; aynı malı iki kişinin irsaliye etmesi ekran açılışında engellenir, POST anında değil. Açık ekran 30 sn'de bir yeniler, **2 dakika** sessiz kalan kilit devralınabilir (iPad kilitlenir/pil biterse pazar kilitli kalmasın). `ADMIN` kilit tanımaz, devralır. Kilit `createExit` içinde de doğrulanır — doğrudan API çağrısı kilidi atlayamaz
 - 📱 **Mobile-first responsive** — Tablolar mobilde otomatik gizleme/yığma
 - 🔐 **JWT auth + role guard** — Frontend `ProtectedRoute` + backend middleware
 - ⚡ **Performans optimize** — Vendor chunk split, PDF/XLSX lazy, auto-refresh `document.hidden` pause
@@ -31,7 +33,8 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 🔥 **Akıllı ürün sıralaması** — Mal kabul ekranındaki ürünler en çok girişi yapılana göre sıralanır (global)
 - 🔄 **Üretici aktif/pasif** — Admin panelinde tek tıkla toggle; pasif üreticiler operatör ekranında görünmez, backend de blok eder (cari kayıtlar korunur)
 - 🗂️ **Ana ürün gruplaması** — Ürünlere admin panelinden "Ana ürün" (`Product.groupName`) atanır; mal kabul ekranında ana ürün (Portakal) → tıkla → çeşitler (Kan, Şeker, Valensia…) açılır. Admin ürün listesi de gruplu gösterilir
-- 🛡️ **Denetim kaydı (audit log)** — Hassas veri okuma ve export'ları kaydeder (`AuditLog`: kim, ne zaman, hangi kaynak, kaç satır). Admin panelinde `/admin/denetim` görüntüleyici; 200 satır üstü okuma anomali olarak işaretlenir. Export tarayıcıda üretildiği için istemci indirmeden önce niyet kaydı gönderir
+- 🛡️ **Denetim kaydı (audit log)** — Okuma/export **ve yazma** eylemlerini kaydeder: `CREATE`/`UPDATE`/`DELETE` (mal kabul, irsaliye, iade, transfer, kasa, cari, fiyat) + `LOGIN`/`LOGIN_FAIL`. `recordId` neyin, `detail` ne olduğunu tutar ("Acur · Pazar #14 · 4 kasa · 44 kg") — kayıt silinmiş olabileceği için özet logun kendisinde durur, JOIN ile geri getirilemez. Başarısız giriş denemeleri de yazılır (parola asla). **Saklama: 30 gün**, `server.js` günde bir temizler. Görüntüleyici: `/admin/erisim-kayitlari`, eylem türüne göre filtreli
+  > 2026-08-18 öncesi yalnızca okuma/export loglanıyordu; bu yüzden kayıtlarda sadece admin panelini gezen kullanıcılar görünüyor, sahada mal kabul yapan operatörlerin izi bulunmuyordu
 - 🔥 **Fire / imha raporu** — `99 ATILAN` pazarına yazılan mallar (`/admin/fire`). İki kaynak: bayiden iade → imha, ya da depodaki malın 99'a transferi
 - 🏷️ **Entry kaynak ayrımı** — `EntrySource` (`HARVEST` / `RETURN` / `DISCARD`). Raporlar yalnızca `HARVEST` sayar; iade ve imha entry'leri mal kabul hacmine karışmaz
 - 🔒 **Rol bazlı ağ kısıtı** — Saha rolleri (`DEPO`, `OPERATOR`, `CASE_MANAGER`) yalnızca `HAL_ALLOWED_IPS`'teki hal hattından; `ADMIN` ve `ACCOUNTING` her yerden erişir. Kontrol `requireAuth` içinde, **her istekte** yapılır — hal içinde alınan token dışarı taşınırsa da çalışmaz. Prod'da `HAL_ALLOWED_IPS` tanımsızsa sunucu açılmaz. SSH ayrıca hal IP'sine kilitli
@@ -164,6 +167,8 @@ HAL_ALLOWED_IPS="127.0.0.1,HAL_STATIK_IP"
 ## 🔄 Temel İş Akışları
 
 ### Mal Kabul Akışı
+
+> **Saha düzeni (2026-08-18):** kart alan sırası **Kasa → Pazar No → Miktar**. Adım değiştiğinde sayfa başa sarılır (alttaki "Son Girişler" listesi uzayınca form ekrandan kaçıyordu). Siyah kasa ve B kalite hem parti geneli hem **kart bazında** işaretlenebilir.
 ```
 RegionSelect → ProducerSelect → ProductSelect → EntryForm
                                                      │
@@ -176,6 +181,8 @@ cascade ile silinir, kasa adedi düzenlenirse hareket de güncellenir — bölge
 mal kabul kayıtlarıyla her zaman tutarlı kalır.
 
 ### İrsaliye / Çıkış Akışı
+
+> **Fiş düzeni (2026-08-18):** kalemlerin soluna **sıra no** sütunu eklendi; numara **her sayfada 01'den** başlar (sayfa başına `PAGE_ROWS = 21` satır). Fişteki **"Toplam Borç" kaldırıldı**, "Toplam Kasa Bakiyesi" duruyor. Ekran çıktısı ([`IrsaliyePrint.jsx`](frontend/src/components/IrsaliyePrint.jsx)) ile PDF ([`pdfGenerator.js`](frontend/src/utils/pdfGenerator.js)) **kilit adımlı** — biri değişirse diğeri de değişmeli.
 ```
 ExitPage (pazar listesi, bekleyen entry sayıları)
         │
@@ -334,7 +341,7 @@ Ana entity'ler:
 - **RegionSession** — Bir bölgenin gün içi mal kabul oturumu (`ACTIVE`/`COMPLETED`)
 - **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable). `Product.unit: ProductUnit` (`CASE`/`BUNCH`/`PIECE`) → satış birimi (kilo / bağ / adet). **Quality kullanımdan kalktı** (2026-08-13): mal kabul zaten kalite göndermiyordu, fiyat ürün başına tek. Tablo ve `Entry.qualityId`/`ReturnRecord.qualityId` alanları geçmiş kayıtlar için duruyor
 - **Market** — Pazar/bayi (`no` unique numara)
-- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti
+- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti, `bQuality` ikinci kalite işareti (**yalnızca etiket** — kasa hesabına ve fiyata karışmaz). `disposableCase` ve `bQuality` satır bazında ayarlanabilir: mal kabulde üstteki tik partinin tamamına uygulanır, kart üzerindeki işaret tek satırı ayrıştırır
 - **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot)
 - **Transfer** — Pazardan pazara taşıma geçmişi
 - **Price** — Günlük fiyat. `qualityId` **nullable**: NULL = ürünün genel fiyatı (yeni standart, kalite kullanımdan kalktı), dolu = eski kaliteli satır. Arama iki katmanlı — önce ürün+kalite, yoksa genel: **tek karar noktası [`backend/src/utils/prices.js`](backend/src/utils/prices.js) → `priceOf()`**. Genel fiyatın tekilliğini partial unique index sağlar; `@@unique` NULL'lu satırları kapsamaz (Postgres'te iki NULL eşit sayılmaz)
@@ -342,7 +349,9 @@ Ana entity'ler:
 - **CaseMovement** — Boş kasa hareketi. Bayi tarafı (`MARKET_OUT/IN/INIT/ADJUST`, `marketId`) ve bölge tarafı (`REGION_OUT/IN/ADJUST`, `regionId`). `REGION_IN` mal kabulle otomatik doğar, `entryId` ile girişe bağlıdır (unique + cascade). **Hangi kaydın kasa hesabına gireceğine tek yer karar verir: [`backend/src/utils/cases.js`](backend/src/utils/cases.js) → `trackedCases()`** — yalnızca siyah/karton kasa 0 döner; birim karışmaz (2026-08-13'te değişti, önce `BUNCH` da 0 dönüyordu)
 - **ReturnRecord** — Bayiden iade (atomic Entry + Ledger + CaseMovement bağlar)
 - **User** — Sistem kullanıcısı + `roles: UserRole[]`
-- **AuditLog** — Hassas veri erişim/export kaydı (`action`, `resource`, `recordCount`, `ip`, `userAgent`). `username` denormalize: hesap silinse de iz kalır
+- **AuditLog** — Erişim/export **ve yazma** kaydı (`action`, `resource`, `recordCount`, `recordId`, `detail`, `ip`, `userAgent`). `username` denormalize: hesap silinse de iz kalır. 30 günden eski kayıtlar otomatik silinir
+- **SyncedBatch** — Offline kuyruğun idempotency kaydı. `clientId` **PRIMARY KEY**: transaction'ın ilk adımı bu satırı yazmak, ikinci istek PK ihlaline çarpıp geri dönüyor. Entry'ye `@unique` kolon konamazdı — bir batch N satır yazar, hepsi aynı anahtarı taşır
+- **ExitLock** — Çıkış ekranı kilidi. `marketId` **PRIMARY KEY** (pazar başına tek satır), `heartbeatAt` ile 2 dakikalık zaman aşımı. Tek karar noktası: [`backend/src/utils/exitLock.js`](backend/src/utils/exitLock.js)
 
 Detay: [`backend/prisma/schema.prisma`](backend/prisma/schema.prisma)
 

@@ -1,7 +1,7 @@
 import { prisma } from '../utils/prismaClient.js'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcrypt'
-import { audit } from '../utils/audit.js'
+import { audit, auditLogin } from '../utils/audit.js'
 import { networkAllows, NETWORK_DENIED_MESSAGE } from '../middleware/network.js'
 import { UNITS } from '../utils/units.js'
 
@@ -17,17 +17,24 @@ export async function login(req, res, next) {
 
     const user = await prisma.user.findUnique({ where: { username } })
     if (!user || !user.passwordHash || !user.active) {
+      // Başarısız denemeler de kaydediliyor: çalınan/denenen hesabı ancak böyle
+      // fark ederiz. Parola ASLA loglanmaz, yalnızca denenen kullanıcı adı.
+      auditLogin(req, { ok: false, username })
       return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' })
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash)
     if (!ok) {
+      auditLogin(req, { ok: false, username, userId: user.id })
       return res.status(401).json({ error: 'Kullanıcı adı veya şifre hatalı' })
     }
 
     // Saha rolleri hal ağı dışından token bile alamasın (requireAuth zaten her
     // istekte kontrol ediyor; burada da kesmek kullanıcıya doğru hatayı verir).
     if (!networkAllows(user, req.ip)) {
+      // Hal dışından deneme: kimlik doğru ama konum yanlış — güvenlik açısından
+      // başarısız giriş kadar önemli.
+      auditLogin(req, { ok: false, username, userId: user.id })
       return res
         .status(403)
         .json({ error: NETWORK_DENIED_MESSAGE, code: 'NETWORK_RESTRICTED' })
@@ -42,6 +49,7 @@ export async function login(req, res, next) {
       process.env.JWT_SECRET,
       signOpts
     )
+    auditLogin(req, { ok: true, username: user.username, userId: user.id })
     res.json({ token, user: { id: user.id, name: user.name, username: user.username, roles: user.roles } })
   } catch (err) {
     next(err)

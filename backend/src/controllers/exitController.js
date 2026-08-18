@@ -5,6 +5,8 @@ import { sumTrackedCases } from '../utils/cases.js'
 import { priceOf } from '../utils/prices.js'
 import { toPriceDate } from '../utils/date.js'
 import { marketSummary } from '../utils/marketSummary.js'
+import { assertExitLock } from '../utils/exitLock.js'
+import { auditCreate, auditUpdate, auditDelete } from '../utils/audit.js'
 
 export async function createExit(req, res, next) {
   try {
@@ -25,6 +27,12 @@ export async function createExit(req, res, next) {
         : 'İmha pazarına irsaliye kesilemez'
       return res.status(400).json({ error: hint })
     }
+
+    // Ekran kilidi burada da doğrulanıyor: yalnızca ekranda kontrol edilseydi
+    // kilidi olmayan bir istemci doğrudan POST atıp aynı çakışmayı üretirdi.
+    // ADMIN muaf, kilit yoksa/bayatsa geçer (bkz. utils/exitLock.js).
+    const lockError = await assertExitLock(Number(marketId), req.user)
+    if (lockError) return res.status(409).json({ error: lockError })
 
     const createdBy = req.body.createdBy ?? 'Operatör'
 
@@ -144,6 +152,12 @@ export async function createExit(req, res, next) {
     // yazdırma izni await'ten sonra düşüyor, bkz. store/printStore.js), o yüzden
     // veri fişin kendi payload'ında gitmeli.
     const summary = await marketSummary(exit.marketId)
+
+    auditCreate(
+      req, 'exit', exit.id,
+      `İrsaliye #${exit.id} · Pazar #${targetMarket.no} ${targetMarket.name} · ${exit.items.length} kalem`,
+      exit.items.length,
+    )
 
     res.status(201).json({
       ...exit,
@@ -329,6 +343,12 @@ export async function updateExit(req, res, next) {
     // Kasa/borç hareketleri transaction içinde senkronlandı, bu okuma güncel.
     const summary = await marketSummary(exit.marketId)
 
+    auditUpdate(
+      req, 'exit', exit.id,
+      `İrsaliye #${exit.id} düzenlendi · ${exit.items.length} kalem` +
+      (returnedToDepo?.length ? ` · ${returnedToDepo.length} kalem depoya döndü` : ''),
+    )
+
     res.json({
       ...exit,
       items: itemsWithPrice,
@@ -399,6 +419,12 @@ export async function deleteExit(req, res, next) {
       })
     })
 
+    // Silen kişi modaldan geliyor (tek admin şifresi yüzünden req.user gerçek
+    // kişiyi göstermiyor) — denetim satırında o isim de dursun.
+    auditDelete(
+      req, 'exit', id,
+      `İrsaliye #${id} silindi · ${entryIds.length} kalem depoya döndü · silen: ${createdBy}`,
+    )
     res.json({ deleted: id, returnedToDepo: returned })
   } catch (err) { next(err) }
 }

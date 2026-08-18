@@ -135,6 +135,34 @@ model Market {
   transfersFrom Transfer[]     @relation("TransferFrom")
   transfersTo   Transfer[]     @relation("TransferTo")
   returns       ReturnRecord[]
+  exitLock      ExitLock?
+}
+
+// Çıkış (irsaliye) ekranı kilidi — pazar başına TEK kullanıcı.
+//
+// NEDEN: aynı pazarı iki operatör aynı anda açtığında ikisi de kalem seçip
+// irsaliye kesiyor. İkincisi 409'a çarpıyor (ExitItem @@unique([entryId])) ama o
+// noktada mal fiziksel olarak yüklenmiş oluyor — hata ekranda, kamyon yolda.
+// Kilit çakışmayı ekran açılışında engelliyor, POST anında değil.
+//
+// marketId PRIMARY KEY: pazar başına tek satır, çakışma veritabanı seviyesinde
+// imkânsız. Başka pazarlar birbirini beklemez.
+//
+// heartbeatAt + zaman aşımı: iPad kilitlenir, pil biter ya da sekme kapanırsa
+// kilit sonsuza kadar kalmamalı. Açık ekran 30 sn'de bir yeniliyor; 2 dakika
+// sessiz kalan kilit devralınabilir sayılıyor (bkz. exitLockController).
+// Bu yüzden "kilidi bırak" isteği best-effort — gelmezse zaman aşımı kurtarır.
+model ExitLock {
+  market      Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  marketId    Int      @id
+  // Kilidi tutan kullanıcı. Hesap silinse bile ekranda kimin tuttuğu yazsın diye
+  // username kopyalanıyor (AuditLog ile aynı gerekçe).
+  userId      Int?
+  username    String?
+  acquiredAt  DateTime @default(now())
+  heartbeatAt DateTime @default(now())
+
+  @@index([heartbeatAt])
 }
 
 model Entry {
@@ -162,6 +190,15 @@ model Entry {
   // Atılan kasadır, stoklu kasa değil. weak'ten BAĞIMSIZ: ikisi aynı anda
   // işaretlenebilir. Tek okuma noktası: utils/cases.js → trackedCases()
   disposableCase  Boolean        @default(false)
+  // İkinci kalite mal. SADECE ETİKET (2026-08-18): kasa muhasebesine karışmaz —
+  // trackedCases() bunu okumaz, kasa normal sayılır — ve fiyatı değiştirmez.
+  // Raporlama/filtreleme için var. weak ve disposableCase'ten bağımsız, üçü
+  // aynı anda işaretlenebilir.
+  //
+  // Kaldırılan Quality TABLOSUYLA İLGİSİ YOK: o sistem 2026-08-13'te kullanımdan
+  // kalktı (bkz. Price modeli yorumu) ve fiyatı kaliteye bağlıyordu. Bu düz bir
+  // işaret; diriltilmiş kalite sistemi değil.
+  bQuality        Boolean        @default(false)
   // Mal kabul mu, iade mi, imha mı — raporlar buna göre filtreler
   source          EntrySource    @default(HARVEST)
   market          Market         @relation(fields: [marketId], references: [id], onDelete: Restrict)
@@ -366,9 +403,20 @@ model AuditLog {
   id          Int      @id @default(autoincrement())
   userId      Int?
   username    String?  // kayıt anındaki kullanıcı adı (hesap sonradan silinse de durur)
-  action      String   // READ | EXPORT
-  resource    String   // ledger | producers | markets | prices | analytics ...
+  // READ | EXPORT | CREATE | UPDATE | DELETE | LOGIN | LOGIN_FAIL
+  // Yazma eylemleri 2026-08-18'de eklendi: o güne kadar yalnızca okuma/indirme
+  // kaydediliyordu, bu yüzden logda sadece admin panelini gezen kullanıcılar
+  // görünüyordu — sahada mal kabul yapan operatörlerin hiçbir izi yoktu.
+  action      String
+  resource    String   // entry | exit | return | price | user | ledger | ...
   recordCount Int?     // dönen/işlenen kayıt sayısı — anomali tespiti için
+  // Etkilenen kaydın kimliği. Silme/düzenlemede "neyi" sorusunun cevabı;
+  // olmadan log "sildi" der ama neyi sildiğini söylemez.
+  recordId    Int?
+  // İnsan okuyabilir özet: "Pazar #3 · Acur · 10 kasa". Kaydın kendisi silinmiş
+  // olabileceği için log tek başına anlaşılabilir olmalı — sonradan JOIN ile
+  // geri getirilemez.
+  detail      String?
   ip          String?
   userAgent   String?
   createdAt   DateTime @default(now())
@@ -377,5 +425,33 @@ model AuditLog {
   @@index([resource, createdAt])
   @@index([action, createdAt])
   // Erişim Kayıtları filtresiz açılıyor
+  @@index([createdAt])
+}
+
+// Offline kuyruğun idempotency kaydı — aynı isteğin iki kez yazılmasını önler.
+//
+// NEDEN GEREKLİ: iPad kesintide kaydı kuyruğa alıyor ve bağlantı gelince
+// gönderiyor. "İstek sunucuya ulaştı, yanıt yolda kayboldu" senaryosunda kalem
+// kuyrukta kalır ve TEKRAR gönderilir. Bu tablo olmadan her kesinti çift mal
+// kabul kaydı üretir — kasa ve cari hesap sessizce şişer.
+//
+// NEDEN AYRI TABLO (Entry.clientId @unique değil): bir mal kabul batch'i N satır
+// yazıyor, hepsi aynı clientId'yi taşır — kolon unique olamaz. Unique olmayan
+// kolonda "önce sor, sonra yaz" ise yarış durumuna açık: retry'ın ilk yanıtı
+// gecikirken ikinci istek gelirse ikisi de "yok" görüp yazar. Burada clientId
+// PRIMARY KEY: transaction'ın ilk adımı bu satırı yazmayı denemek, ikinci istek
+// unique ihlaline (P2002) çarpıp geri dönüyor. Kontrol atomik.
+//
+// kind: ENTRY_BATCH şimdilik. Exit/Return offline'a alındığında aynı tablo
+// kullanılacak — idempotency mekanizması işe göre değişmiyor.
+model SyncedBatch {
+  clientId  String   @id
+  kind      String
+  // Yazılan kayıtların id'leri: aynı clientId tekrar gelirse istemciye ne
+  // yazdığımızı söyleyebilelim (istemci 2xx bekliyor, kayıt id'si de işine yarar).
+  recordIds Int[]
+  createdAt DateTime @default(now())
+  createdBy String?
+
   @@index([createdAt])
 }

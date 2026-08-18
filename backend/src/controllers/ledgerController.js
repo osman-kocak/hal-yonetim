@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { auditCreate, auditDelete } from '../utils/audit.js'
 import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
 import { audit } from '../utils/audit.js'
 import { parsePagination, paginated } from '../utils/pagination.js'
@@ -101,6 +102,10 @@ export async function createEntry(req, res, next) {
       data,
       include: { market: true, producer: true },
     })
+    auditCreate(
+      req, 'ledger', entry.id,
+      `${entry.type} · ${entry.amount} TL · ${entry.market ? `Pazar #${entry.market.no}` : entry.producer?.name ?? '—'}`,
+    )
     res.status(201).json(entry)
   } catch (err) {
     next(err)
@@ -128,6 +133,7 @@ export async function deleteEntry(req, res, next) {
       })
     }
     await prisma.ledgerEntry.delete({ where: { id } })
+    auditDelete(req, 'ledger', id, `${entry.type} · ${entry.amount} TL silindi`)
     res.status(204).end()
   } catch (err) {
     next(err)

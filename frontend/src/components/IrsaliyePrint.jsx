@@ -14,7 +14,6 @@ const fmt = (n) => new Intl.NumberFormat('tr-TR', {
 // "TL" yazılıyor, "₺" DEĞİL: PDF'in gömülü Arial'inde ₺ simgesi yok ve jsPDF onu
 // sessizce düşürüyor. Ekranda ₺ bırakılsa iki çıktı ayrışırdı.
 const num = (n) => (n === null || n === undefined ? '—' : new Intl.NumberFormat('tr-TR').format(Number(n)))
-const money = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} TL`)
 
 // App seviyesinde tek örnek durur (bkz. App.jsx). Ekranda görünmez; yalnızca
 // yazdırmada sayfayı kaplar — stiller index.css'teki @media print bloğunda.
@@ -85,11 +84,10 @@ export function IrsaliyeSheet({ exit }) {
               <div className="print-red">
                 <strong>Toplam Kasa Bakiyesi:</strong> {num(exit.marketCaseBalance)}
               </div>
-              {/* Borç tek başına satırı kaplar: rakamın gözden kaçmaması için
-                  yanına başka veri konmuyor. */}
-              <div className="print-red print-info-wide">
-                <strong>Toplam Borç:</strong> {money(exit.marketDebt)}
-              </div>
+              {/* Toplam Borç KALDIRILDI (2026-08-18, saha isteği). Sunucu
+                  marketDebt'i göndermeye devam ediyor — başka ekranlar
+                  kullanıyor, yalnızca fişte basılmıyor. pdfGenerator.js ile
+                  lockstep: ikisinden birinde kalırsa iki çıktı ayrışır. */}
             </div>
 
             <table className="print-table">
@@ -99,6 +97,7 @@ export function IrsaliyeSheet({ exit }) {
                     her satırda dolu — kasa sayımı birimden bağımsız.
                     pdfGenerator.js ile KİLİT ADIMLI — ikisi birlikte değişmeli. */}
                 <tr>
+                  <th className="tc">No</th>
                   <th className="tl">Ürün</th>
                   <th className="tr">Kasa</th>
                   <th className="tr">Miktar</th>
@@ -106,8 +105,11 @@ export function IrsaliyeSheet({ exit }) {
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((r) => (
+                {/* Sıra no HER SAYFADA 01'den başlar (saha isteği). Sayfa başına
+                    PAGE_ROWS=21 satır olduğu için numara 21'i geçmez. */}
+                {pageRows.map((r, idx) => (
                   <tr key={r.id}>
+                    <td className="tc">{String(idx + 1).padStart(2, '0')}</td>
                     <td className="tl">{r.name}</td>
                     <td className="tr">{r.caseCount}</td>
                     <td className="tr">

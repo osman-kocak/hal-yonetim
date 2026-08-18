@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, MarketAutocomplete } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { formatDate, formatWeight } from '@/utils/formatters'
-import { Pencil, AlertTriangle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { Pencil, AlertTriangle, ChevronDown, ChevronUp, Trash2, Package, Layers } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
 export function RecentEntriesList({ sessionId }) {
@@ -123,6 +123,20 @@ export function RecentEntriesList({ sessionId }) {
                           Zayıf
                         </Badge>
                       )}
+                      {/* Siyah kasa ve B kalite artık satır bazlı olabildiği için
+                          burada gösteriliyor: parti geneline bakarak anlaşılmıyor. */}
+                      {e.disposableCase && (
+                        <Badge variant="default" className="ml-2 inline-flex items-center gap-1 text-[10px]">
+                          <Package className="w-2.5 h-2.5" />
+                          Siyah
+                        </Badge>
+                      )}
+                      {e.bQuality && (
+                        <Badge variant="warning" className="ml-2 inline-flex items-center gap-1 text-[10px]">
+                          <Layers className="w-2.5 h-2.5" />
+                          B Kalite
+                        </Badge>
+                      )}
                     </td>
                     <td className="p-2 sm:p-3 text-right tabular-nums font-semibold">{e.caseCount}</td>
                     <td className="p-2 sm:p-3 text-right tabular-nums">{formatWeight(e.weight)}</td>
@@ -188,6 +202,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
   const [marketId, setMarketId] = useState(null)
   const [weak, setWeak] = useState(false)
   const [disposableCase, setDisposableCase] = useState(false)
+  const [bQuality, setBQuality] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const addToast = useToastStore((s) => s.addToast)
@@ -200,6 +215,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
       setMarketQuery(entry.market ? (entry.market.no === 0 ? 'Depo' : String(entry.market.no)) : '')
       setWeak(!!entry.weak)
       setDisposableCase(!!entry.disposableCase)
+      setBQuality(!!entry.bQuality)
       setError('')
     }
   }, [entry])
@@ -219,6 +235,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
         marketId,
         weak,
         disposableCase,
+        bQuality,
       })
       addToast('Giriş güncellendi ✓')
       onSaved(updated)
@@ -292,6 +309,20 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
             />
             <span className="text-sm text-text-secondary">
               Siyah/karton kasa <span className="text-text-muted">— kasa hesabına girmez</span>
+            </span>
+          </label>
+
+          {/* B kalite yalnızca etiket: kasa hareketini de fiyatı da değiştirmez,
+              bu yüzden siyah kasadaki düzeltme zincirine girmiyor. */}
+          <label className="flex items-center gap-2 cursor-pointer -mt-2">
+            <input
+              type="checkbox"
+              checked={bQuality}
+              onChange={(e) => setBQuality(e.target.checked)}
+              className="w-4 h-4 rounded accent-amber-600"
+            />
+            <span className="text-sm text-text-secondary">
+              B kalite <span className="text-text-muted">— yalnızca işaret, hesabı etkilemez</span>
             </span>
           </label>
 

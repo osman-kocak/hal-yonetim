@@ -15,6 +15,11 @@ import { ArrowLeft, FileText, Printer, Check, X, Undo2, ArrowRightLeft, AlertTri
 
 const REFRESH_INTERVAL = 10
 
+// Kilit yenileme aralığı. Sunucudaki zaman aşımı 2 dakika (utils/exitLock.js);
+// 30 sn dört kaçırılmış yenileme payı bırakıyor — zayıf sinyalde kilit boşuna
+// düşmesin, ama ekran gerçekten kapandıysa pazar uzun süre bekletilmesin.
+const LOCK_HEARTBEAT_MS = 30_000
+
 export function MarketExitDetail() {
   const { marketId } = useParams()
   const navigate = useNavigate()
@@ -35,6 +40,12 @@ export function MarketExitDetail() {
   const [selected, setSelected] = useState(new Set())
   const [submitting, setSubmitting] = useState(false)
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL)
+  // Ekran kilidi. null = henüz denenmedi, { ok } = bizde, { lockedBy } = başkasında.
+  // Kilit bizde değilken ekran SALT OKUNUR: irsaliye kesme ve kalem taşıma
+  // kapanır. Sunucu da aynı kontrolü yapıyor (bkz. backend utils/exitLock.js) —
+  // buradaki kilit sadece operatörü boşa çalışmaktan kurtarıyor.
+  const [lock, setLock] = useState(null)
+  const locked = lock !== null && !lock.ok
 
   async function fetchEntries(isInitial = false) {
     try {
@@ -73,6 +84,44 @@ export function MarketExitDetail() {
   useEffect(() => {
     fetchEntries(true)
     api.getPublicPrices(today()).then(setPriceMap).catch(() => {})
+  }, [marketId])
+
+  // Ekran kilidi: açılışta al, açık kaldıkça yenile, çıkarken bırak.
+  //
+  // Yenileme her seferinde sunucuda yeniden değerlendiriliyor — kilidimiz zaman
+  // aşımına uğrayıp başkasına geçtiyse burada 409 alıp salt-okunura düşeriz.
+  // Böylece iki kişi habersiz aynı pazarda kalmıyor.
+  useEffect(() => {
+    let alive = true
+    const id = Number(marketId)
+
+    async function ping() {
+      try {
+        const res = await api.acquireExitLock(id)
+        if (alive) setLock({ ok: true, overriding: res?.overriding, lockedBy: res?.lockedBy })
+      } catch (err) {
+        // Ağ hatasında kilidi DÜŞÜRMÜYORUZ: kesintide ekranı salt-okunura almak
+        // operatörü boş yere durdurur, sunucudaki zaman aşımı zaten koruyor.
+        if (err?.response?.status === 409 && alive) {
+          setLock({ ok: false, lockedBy: err.response.data?.lockedBy })
+        }
+      }
+    }
+
+    ping()
+    const timer = setInterval(() => { if (!document.hidden) ping() }, LOCK_HEARTBEAT_MS)
+    // Sekme öne gelince hemen yenile: arka planda kaçırılan yenilemeler kilidi
+    // düşürmüş olabilir, operatör çalışmaya başlamadan önce durumu öğrensin.
+    const onVisible = () => { if (!document.hidden) ping() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      alive = false
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      // Best-effort bırakma; ulaşmazsa sunucu zaman aşımıyla düşürür.
+      api.releaseExitLock(id).catch(() => {})
+    }
   }, [marketId])
 
   // Countdown + periyodik yenileme — yalnızca sekme arka plandaysa durur.
@@ -300,6 +349,31 @@ export function MarketExitDetail() {
       </header>
 
       <main className="p-4 sm:p-6 max-w-5xl mx-auto">
+        {/* Kilit başkasındayken ekran salt okunur. Liste görünmeye devam ediyor:
+            operatör "bu pazarda ne var" sorusunu yine cevaplayabilmeli, sadece
+            yazma işlemleri kapalı. */}
+        {locked && (
+          <div className="mb-4 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-text-primary">
+                Bu pazarda şu an {lock?.lockedBy ?? 'başka bir kullanıcı'} çalışıyor
+              </p>
+              <p className="text-text-secondary">
+                Aynı malı iki kişi irsaliye etmesin diye ekran salt okunur açıldı.
+                Diğer kullanıcı çıkınca ekran kendiliğinden açılır.
+              </p>
+            </div>
+          </div>
+        )}
+        {/* Admin başkasının kilidini devraldı — karşı taraf da uyarı görecek. */}
+        {lock?.ok && lock?.overriding && (
+          <div className="mb-4 rounded-xl border border-border bg-gray-50 px-4 py-3 text-sm text-text-secondary">
+            <strong className="text-text-primary">{lock.lockedBy}</strong> bu pazarda çalışıyordu,
+            yönetici yetkisiyle devraldınız.
+          </div>
+        )}
+
         {/* Tüm kalemler kaldırılmışsa tablo yine görünmeli — gri satırlar orada */}
         {!entries.length && !removed.length ? (
           <EmptyState
@@ -319,6 +393,7 @@ export function MarketExitDetail() {
                         type="checkbox"
                         checked={selected.size > 0 && selected.size === entries.length}
                         onChange={(e) => toggleAll(e.target.checked)}
+                        disabled={locked}
                         className="w-4 h-4 rounded accent-primary"
                       />
                     </th>
@@ -346,6 +421,7 @@ export function MarketExitDetail() {
                           type="checkbox"
                           checked={selected.has(entry.id)}
                           onChange={() => toggle(entry.id)}
+                          disabled={locked}
                           onClick={(e) => e.stopPropagation()}
                           className="w-4 h-4 rounded accent-primary"
                         />
@@ -386,7 +462,7 @@ export function MarketExitDetail() {
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setMoveTarget(entry) }}
-                          disabled={busyEntry === entry.id}
+                          disabled={busyEntry === entry.id || locked}
                           title="Başka pazara aktar"
                           className="p-2 rounded-lg text-text-muted hover:bg-primary-light hover:text-primary-dark disabled:opacity-40 transition-colors"
                         >
@@ -395,7 +471,7 @@ export function MarketExitDetail() {
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleRemove(entry) }}
-                          disabled={busyEntry === entry.id}
+                          disabled={busyEntry === entry.id || locked}
                           title="Depoya geri gönder"
                           className="p-2 rounded-lg text-text-muted hover:bg-error/10 hover:text-error disabled:opacity-40 transition-colors"
                         >
@@ -434,7 +510,7 @@ export function MarketExitDetail() {
                         <button
                           type="button"
                           onClick={() => handleUndoRemove(t)}
-                          disabled={busyEntry === t.entryId}
+                          disabled={busyEntry === t.entryId || locked}
                           title="Geri al — kalem pazara döner"
                           className="p-2 rounded-lg text-text-muted hover:bg-primary-light hover:text-primary-dark disabled:opacity-40 transition-colors"
                         >
@@ -479,7 +555,10 @@ export function MarketExitDetail() {
                 size="xl"
                 onClick={handleCreateExit}
                 loading={submitting}
-                disabled={!selected.size}
+                // Kilit başkasındayken kapalı: sunucu da reddederdi, ama butonu
+                // açık bırakmak operatöre boşuna kalem seçtirip hata gösterirdi.
+                disabled={!selected.size || locked}
+                title={locked ? `${lock?.lockedBy ?? 'Başka bir kullanıcı'} bu pazarda çalışıyor` : undefined}
                 className="flex items-center gap-2"
               >
                 <FileText className="w-5 h-5" />

@@ -18,4 +18,10 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  // Vite yapılandırması tarayıcıda değil Node'da çalışıyor: proxy hedefi
+  // process.env'den okunabiliyor (VITE_API_TARGET), tarayıcı globalleri yetmez.
+  {
+    files: ['vite.config.js'],
+    languageOptions: { globals: globals.node },
+  },
 ])

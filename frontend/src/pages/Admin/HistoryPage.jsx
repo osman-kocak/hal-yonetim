@@ -76,7 +76,7 @@ function buildExitSheets(all) {
 const ENTRY_COLUMNS = [
   'Tarih', 'Ürün', 'Bölge', 'Üretici', 'Kasa', 'Miktar', 'Birim', 'Pazar',
   'Depo Transfer', 'Transfer Tarihi', 'Transfer Notu',
-  'Zayıf', 'Siyah/Karton Kasa',
+  'Zayıf', 'Siyah/Karton Kasa', 'B Kalite',
 ]
 
 // İade (RETURN) ve imha (DISCARD) girişlerinin bölge oturumu yok → region null.
@@ -95,34 +95,103 @@ function depoTransferCell(e) {
   return `Evet (→ #${hedefNo} ${t.toMarket.name})`
 }
 
+function entryRow(e) {
+  return [
+    formatDate(e.createdAt),
+    e.product?.name ?? '—',
+    e.region?.name ?? '—',
+    e.producer?.name ?? '—',
+    e.caseCount,
+    e.weight ? Number(e.weight).toFixed(isCountable(e.unit) ? 0 : 2) : '',
+    unitLabel(e.unit),
+    e.market ? (e.market.no === 0 ? 'Depo' : `#${e.market.no} ${e.market.name}`) : '—',
+    // Boş = mal kabulde doğrudan pazara yazılmış, depoya hiç uğramamış.
+    // Hedef genelde "Pazar" kolonuyla aynı olduğu için tekrar yazılmıyor;
+    // yalnızca sonradan başka pazara aktarıldıysa fark belirtiliyor.
+    depoTransferCell(e),
+    e.depoTransfer ? formatDate(e.depoTransfer.at) : '',
+    // Fire varsa notta: "Tartı farkı: -X kg"
+    e.depoTransfer?.note ?? '',
+    e.weak ? 'Evet' : '',
+    e.disposableCase ? 'Evet' : '',
+    e.bQuality ? 'Evet' : '',
+  ]
+}
+
+// Ara toplam anahtarı: ÜRETİCİ + ÜRÜN + BİRİM.
+//
+// Birim de anahtarda çünkü Entry.unit bir SNAPSHOT: bir ürün geçmişte kiloyla,
+// sonra bağla girilmiş olabilir. Birim anahtara girmezse "45 kg + 30 bağ = 75"
+// gibi anlamsız bir toplam çıkardı.
+//
+// Üretici/ürün silinmişse ('—') hepsi tek kovaya düşmesin diye id kullanılıyor.
+const subtotalKey = (e) => `${e.producer?.id ?? 'yok'}|${e.product?.id ?? 'yok'}|${e.unit}`
+
+// Grup toplamı satırı. Tarih/pazar gibi satıra özel alanlar boş bırakılıyor —
+// dolu olsalar hangi satıra ait oldukları belirsiz olurdu.
+function subtotalRow(items) {
+  const first = items[0]
+  const countable = isCountable(first.unit)
+  const totalCases = items.reduce((s, e) => s + (e.caseCount ?? 0), 0)
+  const totalQty = items.reduce((s, e) => s + Number(e.weight ?? 0), 0)
+  return [
+    '',
+    `TOPLAM · ${first.product?.name ?? '—'}`,
+    '',
+    first.producer?.name ?? '—',
+    totalCases,
+    totalQty.toFixed(countable ? 0 : 2),
+    unitLabel(first.unit),
+    `${items.length} kayıt`,
+    '', '', '', '', '', '',
+  ]
+}
+
+// Bölge sekmesinin satırları: üretici+ürün grupları art arda, her grubun altında
+// toplam satırı.
+//
+// SIRALAMA DEĞİŞTİ (2026-08-18): eskiden kayıtlar geliş sırasındaydı. Ara toplam
+// ancak aynı grubun satırları yan yanayken anlamlı olur, bu yüzden üretici → ürün
+// → tarih sırasına geçildi.
+//
+// TEK SATIRLIK GRUBA TOPLAM YAZILMAZ: aynı rakamı iki kez göstermek tabloyu
+// şişirir. "Uyuşanların toplamı" istendiği için eşik 2 kayıt.
+function rowsWithSubtotals(entries) {
+  const groups = new Map()
+  entries.forEach((e) => {
+    const k = subtotalKey(e)
+    if (!groups.has(k)) groups.set(k, [])
+    groups.get(k).push(e)
+  })
+
+  const sorted = [...groups.values()].sort((a, b) => {
+    const p = (a[0].producer?.name ?? '').localeCompare(b[0].producer?.name ?? '', 'tr')
+    if (p !== 0) return p
+    return (a[0].product?.name ?? '').localeCompare(b[0].product?.name ?? '', 'tr')
+  })
+
+  const out = []
+  sorted.forEach((items) => {
+    items.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    items.forEach((e) => out.push(entryRow(e)))
+    if (items.length > 1) out.push(subtotalRow(items))
+  })
+  return out
+}
+
 function buildEntrySheets(all) {
   const buckets = new Map()
   all.forEach((e) => {
     const name = e.region?.name ?? NO_REGION
     if (!buckets.has(name)) buckets.set(name, [])
-    buckets.get(name).push([
-      formatDate(e.createdAt),
-      e.product?.name ?? '—',
-      e.region?.name ?? '—',
-      e.producer?.name ?? '—',
-      e.caseCount,
-      e.weight ? Number(e.weight).toFixed(isCountable(e.unit) ? 0 : 2) : '',
-      unitLabel(e.unit),
-      e.market ? (e.market.no === 0 ? 'Depo' : `#${e.market.no} ${e.market.name}`) : '—',
-      // Boş = mal kabulde doğrudan pazara yazılmış, depoya hiç uğramamış.
-      // Hedef genelde "Pazar" kolonuyla aynı olduğu için tekrar yazılmıyor;
-      // yalnızca sonradan başka pazara aktarıldıysa fark belirtiliyor.
-      depoTransferCell(e),
-      e.depoTransfer ? formatDate(e.depoTransfer.at) : '',
-      // Fire varsa notta: "Tartı farkı: -X kg"
-      e.depoTransfer?.note ?? '',
-      e.weak ? 'Evet' : '',
-      e.disposableCase ? 'Evet' : '',
-    ])
+    buckets.get(name).push(e)
   })
   const groups = [...buckets.entries()]
     .sort(([a], [b]) => (a === NO_REGION ? 1 : b === NO_REGION ? -1 : a.localeCompare(b, 'tr')))
-    .map(([name, rows]) => ({ name, columns: ENTRY_COLUMNS, rows }))
+    // Ara toplamlar bölge sekmesinin İÇİNDE hesaplanıyor: aynı üretici+ürün iki
+    // bölgede de geçiyorsa iki ayrı toplam çıkar. "Tümü" sekmesi bu sekmeleri
+    // arka arkaya dizdiği için orada da bölge bazlı toplamlar görünür.
+    .map(([name, entries]) => ({ name, columns: ENTRY_COLUMNS, rows: rowsWithSubtotals(entries) }))
   return withSheets(ENTRY_COLUMNS, groups)
 }
 

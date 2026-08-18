@@ -51,6 +51,7 @@ deploy_backend() {
   rsync -avz --delete \
     --exclude 'node_modules' \
     --exclude '.env' \
+    --exclude '.claude-flow' \
     --exclude '.env.local' \
     --exclude '*.log' \
     --exclude '.DS_Store' \

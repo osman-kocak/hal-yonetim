@@ -15,6 +15,21 @@ const RESOURCE_LABELS = {
   markets: 'Bayi listesi', users: 'Kullanıcı listesi', prices: 'Fiyatlar',
   returns: 'İadeler', history: 'Geçmiş', transfers: 'Transferler',
   'case-movements': 'Kasa hareketleri', reports: 'Raporlar', fire: 'Fire',
+  // Yazma eylemlerinin kaynakları (2026-08-18)
+  entry: 'Mal kabul', exit: 'İrsaliye', return: 'İade', transfer: 'Transfer',
+  price: 'Fiyat', 'case-movement': 'Kasa hareketi', auth: 'Oturum', user: 'Kullanıcı',
+}
+
+// Eylem rozetleri. Silme kırmızı, düzenleme sarı, oluşturma yeşil — denetim
+// ekranında gözün önce yıkıcı işlemlere takılması için.
+const ACTION_LABELS = {
+  READ: { label: 'Baktı', variant: 'success' },
+  EXPORT: { label: 'İndirdi', variant: 'warning' },
+  CREATE: { label: 'Oluşturdu', variant: 'success' },
+  UPDATE: { label: 'Düzenledi', variant: 'warning' },
+  DELETE: { label: 'Sildi', variant: 'error' },
+  LOGIN: { label: 'Giriş', variant: 'default' },
+  LOGIN_FAIL: { label: 'Başarısız giriş', variant: 'error' },
 }
 
 const PAGE_SIZE = 50
@@ -75,6 +90,10 @@ export function AuditPage() {
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
           {[
             { key: '', label: 'Hepsi' },
+            { key: 'CREATE', label: 'Oluşturma' },
+            { key: 'UPDATE', label: 'Düzenleme' },
+            { key: 'DELETE', label: 'Silme' },
+            { key: 'LOGIN_FAIL', label: 'Başarısız giriş' },
             { key: 'READ', label: 'Okuma' },
             { key: 'EXPORT', label: 'İndirme' },
           ].map((t) => (
@@ -127,11 +146,18 @@ export function AuditPage() {
                       <td className="p-3 whitespace-nowrap text-text-primary">{formatDate(l.createdAt)}</td>
                       <td className="p-3 font-medium text-text-primary">{l.username ?? `#${l.userId ?? '?'}`}</td>
                       <td className="p-3">
-                        <Badge variant={l.action === 'EXPORT' ? 'warning' : 'success'} className="text-[10px]">
-                          {l.action === 'EXPORT' ? 'İndirdi' : 'Baktı'}
+                        <Badge variant={ACTION_LABELS[l.action]?.variant ?? 'default'} className="text-[10px]">
+                          {ACTION_LABELS[l.action]?.label ?? l.action}
                         </Badge>
                       </td>
-                      <td className="p-3 text-text-secondary">{RESOURCE_LABELS[l.resource] ?? l.resource}</td>
+                      <td className="p-3 text-text-secondary">
+                        {RESOURCE_LABELS[l.resource] ?? l.resource}
+                        {/* Ne yapıldığı: kayıt silinmiş olabileceği için özet
+                            logun kendisinde duruyor, JOIN ile getirilemez. */}
+                        {l.detail && (
+                          <span className="block text-xs text-text-muted">{l.detail}</span>
+                        )}
+                      </td>
                       <td className={`p-3 text-right tabular-nums font-semibold ${anomaly ? 'text-error' : ''}`}>
                         {l.recordCount ?? '—'}
                       </td>

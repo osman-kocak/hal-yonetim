@@ -1,14 +1,19 @@
 import { useToastStore } from '@/store/toastStore'
 import { cn } from '@/utils/cn'
-import { CheckCircle, XCircle, X } from 'lucide-react'
+import { CheckCircle, XCircle, AlertTriangle, X } from 'lucide-react'
 
+// warning: "oldu ama tamamlanmadı" durumu — offline kuyruğa alınan kayıt gibi.
+// success demek yanlış olur (veri sunucuda değil), error demek de yanlış
+// (kayıp yok, sırada bekliyor).
 const icons = {
   success: <CheckCircle className="w-5 h-5 text-success" />,
+  warning: <AlertTriangle className="w-5 h-5 text-warning" />,
   error: <XCircle className="w-5 h-5 text-error" />,
 }
 
 const styles = {
   success: 'border-l-4 border-success',
+  warning: 'border-l-4 border-warning',
   error: 'border-l-4 border-error',
 }
 

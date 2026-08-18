@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { auditCreate, auditDelete } from '../utils/audit.js'
 import { getPriceMap } from './priceController.js'
 import {
   isSpecialMarket, findDepoMarket, findDiscardMarket, DISCARD_NO, DEPO_NO,
@@ -189,6 +190,10 @@ export async function removeEntryToDepo(req, res, next) {
       })
     })
 
+    auditCreate(
+      req, 'transfer', transfer.id,
+      `${transfer.entry?.product?.name ?? 'Kalem'} · ${transfer.fromMarket ? `#${transfer.fromMarket.no}` : '—'} → ${transfer.toMarket ? `#${transfer.toMarket.no}` : '—'}`,
+    )
     res.status(201).json(transfer)
   } catch (err) { next(err) }
 }
@@ -252,6 +257,10 @@ export async function undoRemoveEntryToDepo(req, res, next) {
       })
     })
 
+    auditCreate(
+      req, 'transfer', restored?.id ?? null,
+      `Transfer geri alındı · ${restored?.entry?.product?.name ?? 'Kalem'}`,
+    )
     res.json(restored)
   } catch (err) { next(err) }
 }
@@ -524,6 +533,11 @@ export async function createGroupedTransfer(req, res, next) {
       return { results, shrink }
     })
 
+    auditCreate(
+      req, 'transfer', transfers.results?.[0]?.id ?? null,
+      `Depo transferi · ${transfers.results?.length ?? 0} kalem · ${totalRequested} ${entryUnit ?? ''}`.trim(),
+      transfers.results?.length ?? 0,
+    )
     res.status(201).json({
       transfers: transfers.results,
       totalTransferred: totalRequested,
@@ -832,6 +846,11 @@ export async function createReturnBatch(req, res, next) {
       return out
     })
 
+    auditCreate(
+      req, 'return', results[0]?.returnRecord?.id ?? null,
+      `İade · ${results.length} satır · ${ctx.market ? `Pazar #${ctx.market.no}` : '—'}`,
+      results.length,
+    )
     res.status(201).json({
       count: results.length,
       totalAmount: Math.round(results.reduce((s, r) => s + r.amount, 0) * 100) / 100,
@@ -861,6 +880,10 @@ export async function createReturn(req, res, next) {
     const result = await prisma.$transaction((tx) =>
       writeReturnRow(tx, prepared, { market: ctx.market, createdBy }))
 
+    auditCreate(
+      req, 'return', result?.returnRecord?.id ?? null,
+      `İade · ${prepared.product?.name ?? 'Ürün'} · ${ctx.market ? `Pazar #${ctx.market.no}` : '—'}`,
+    )
     res.status(201).json({
       ...result,
       destination: prepared.dest,
@@ -938,6 +961,9 @@ export async function deleteReturn(req, res, next) {
     const ret = await prisma.returnRecord.findUnique({
       where: { id },
       include: {
+        // product yalnızca denetim kaydının okunabilir olması için: iade
+        // silindikten sonra hangi ürün olduğu başka yerden öğrenilemiyor.
+        product: { select: { name: true } },
         entry: {
           include: {
             exitItems: { select: { id: true } },
@@ -982,6 +1008,12 @@ export async function deleteReturn(req, res, next) {
       if (ret.caseMovementId) await tx.caseMovement.delete({ where: { id: ret.caseMovementId } })
     })
 
+    // İade silmek stok + cari borç + kasa hareketini birlikte geri alıyor;
+    // silinen satırların hepsi tek log satırında görünsün.
+    auditDelete(
+      req, 'return', id,
+      `İade silindi · ${ret.product?.name ?? 'Ürün'} · ${ret.amount ?? 0} TL`,
+    )
     res.status(204).end()
   } catch (err) { next(err) }
 }

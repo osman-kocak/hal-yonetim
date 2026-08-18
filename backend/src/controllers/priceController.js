@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { audit } from '../utils/audit.js'
 import { toPriceDate, localDateString } from '../utils/date.js'
 import { buildPriceMap } from '../utils/prices.js'
 
@@ -71,6 +72,14 @@ export async function upsertPrice(req, res, next) {
         data: { productId: pid, qualityId: qid, pricePerKg: priceValue, date: day, updatedBy: updatedBy ?? null },
         include: { product: true, quality: true },
       })
+    // Fiyat irsaliye tutarını doğrudan etkiliyor: değişiklik izlenebilir olmalı.
+    // Eski değer de yazılıyor — "kim ne zaman kaça çekti" sorusu tek satırda.
+    audit(req, {
+      action: existing ? 'UPDATE' : 'CREATE',
+      resource: 'price',
+      recordId: saved.id,
+      detail: `${saved.product?.name ?? 'Ürün'} · ${saved.pricePerKg} TL`,
+    })
     res.json(saved)
   } catch (err) {
     // İki muhasebeci aynı anda aynı hücreyi yazdı: partial unique index P2002

@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { auditCreate, auditUpdate, auditDelete } from '../utils/audit.js'
 import { trackedCases } from '../utils/cases.js'
 import { isCountable, unitLabel } from '../utils/units.js'
 import { DISCARD_NO, findDepoMarket } from '../utils/markets.js'
@@ -19,6 +20,21 @@ async function validateProducerForSession(producerId, session) {
     return 'Bu üretici seçilen bölgeye ait değil'
   }
   return null
+}
+
+// Log özeti: kayıt silinse bile denetim satırı tek başına anlaşılabilir olmalı.
+function describeEntry(e) {
+  const market = e?.market ? (e.market.no === 0 ? 'Depo' : `Pazar #${e.market.no}`) : '—'
+  const qty = `${e?.weight ?? '?'} ${unitLabel(e?.unit)}`
+  return `${e?.product?.name ?? 'Ürün'} · ${market} · ${e?.caseCount ?? 0} kasa · ${qty}`
+}
+
+async function entrySummary(id) {
+  const e = await prisma.entry.findUnique({
+    where: { id },
+    include: { product: true, market: true },
+  })
+  return e ? describeEntry(e) : `Giriş #${id}`
 }
 
 // Entry sil: exit edilmemişse OK.
@@ -51,7 +67,11 @@ export async function deleteEntry(req, res, next) {
       })
     }
 
+    // Özet silmeden ÖNCE hazırlanıyor: kayıt gittikten sonra "neyi sildi"
+    // sorusunun cevabı yalnızca logda kalıyor.
+    const summary = await entrySummary(id)
     await prisma.entry.delete({ where: { id } })
+    auditDelete(req, 'entry', id, summary)
 
     res.status(204).end()
   } catch (err) { next(err) }
@@ -61,7 +81,7 @@ export async function deleteEntry(req, res, next) {
 export async function updateEntry(req, res, next) {
   try {
     const id = Number(req.params.id)
-    const { caseCount, weight, marketId, weak, disposableCase } = req.body
+    const { caseCount, weight, marketId, weak, disposableCase, bQuality } = req.body
 
     const entry = await prisma.entry.findUnique({
       where: { id },
@@ -86,6 +106,9 @@ export async function updateEntry(req, res, next) {
     const newWeight = weight != null ? Number(weight) : entry.weight
     const newWeak = typeof weak === 'boolean' ? weak : entry.weak
     const newDisposable = typeof disposableCase === 'boolean' ? disposableCase : entry.disposableCase
+    // B kalite kasa hareketini etkilemez (bkz. utils/cases.js) — bu yüzden
+    // aşağıdaki disposableChanged yeniden hesaplama zincirine girmiyor.
+    const newBQuality = typeof bQuality === 'boolean' ? bQuality : entry.bQuality
 
     // Birim, kaydın kendi snapshot'ından okunur — ürünün güncel biriminden değil.
     // Ürün sonradan bağa çevrilse bile bu satır kiloyla girilmişti.
@@ -119,6 +142,7 @@ export async function updateEntry(req, res, next) {
           weight: newWeight,
           weak: newWeak,
           disposableCase: newDisposable,
+          bQuality: newBQuality,
         },
         include: {
           product: true,
@@ -159,6 +183,7 @@ export async function updateEntry(req, res, next) {
       return row
     })
 
+    auditUpdate(req, 'entry', id, describeEntry(updated))
     res.json(updated)
   } catch (err) { next(err) }
 }
@@ -174,7 +199,7 @@ export async function updateEntry(req, res, next) {
 // belli değil. Kasa düzeltmesi gerekiyorsa Kasa Takip ekranından elle girilir.
 export async function createManualDepoEntry(req, res, next) {
   try {
-    const { productId, caseCount, weight, qualityId, producerId, weak, disposableCase } = req.body
+    const { productId, caseCount, weight, qualityId, producerId, weak, disposableCase, bQuality } = req.body
     if (!productId) return res.status(400).json({ error: 'Ürün seçilmeli' })
 
     const depo = await findDepoMarket()
@@ -218,6 +243,7 @@ export async function createManualDepoEntry(req, res, next) {
         unit: product.unit,
         weak: Boolean(weak),
         disposableCase: Boolean(disposableCase),
+        bQuality: Boolean(bQuality),
         source: 'HARVEST', // mal girişi — iade/imha değil
         marketId: depo.id,
         createdBy: req.user?.name || req.user?.username || 'Admin',
@@ -225,27 +251,60 @@ export async function createManualDepoEntry(req, res, next) {
       include: { product: true, quality: true, producer: true, market: true },
     })
 
+    auditCreate(req, 'entry', entry.id, `Elle depo girişi · ${describeEntry(entry)}`)
     res.status(201).json(entry)
   } catch (err) { next(err) }
 }
 
 export async function createEntryBatch(req, res, next) {
+  // clientId try DIŞINDA: catch bloğu da okuyor (P2002 yarış durumu için).
+  // Offline kuyruğun idempotency anahtarı. Online gönderimde de dolu gelir:
+  // timeout alan istemci kaydı kuyruğa alıp AYNI anahtarla tekrar gönderiyor,
+  // sunucu ilk isteği yazmışsa ikincisini yazmamalı (bkz. SyncedBatch).
+  const { clientId } = req.body
+
   try {
     // weak ve disposableCase batch seviyesinde: tek ürün için N satır pazar
     // dağılımı giriliyor, ikisi de o partinin tamamına ait.
     const {
-      regionSessionId, productId, producerId, qualityId, weak, disposableCase, entries,
+      regionSessionId, productId, producerId, qualityId, weak, disposableCase, bQuality, entries,
     } = req.body
 
     if (!regionSessionId || !productId || !entries?.length) {
       return res.status(400).json({ error: 'Tüm alanlar zorunludur' })
     }
 
+    // Bu batch daha önce işlendi mi? Ucuz ön kontrol — asıl garanti
+    // transaction'daki PK ihlali (aşağıda), burası yalnızca boşa iş yapmamak için.
+    if (clientId) {
+      const seen = await prisma.syncedBatch.findUnique({ where: { clientId } })
+      if (seen) return res.json({ alreadySynced: true, recordIds: seen.recordIds })
+    }
+
     const session = await prisma.regionSession.findUnique({
       where: { id: Number(regionSessionId) },
     })
-    if (!session || session.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'Aktif bölge oturumu bulunamadı' })
+    if (!session) {
+      return res.status(400).json({ error: 'Bölge oturumu bulunamadı' })
+    }
+    // Oturum kapanmışsa normalde kayıt kabul edilmez. TEK İSTİSNA offline kuyruk:
+    // operatör kesintide giriş yapar, bağlantı gelince bölgeyi tamamlar ve kuyruk
+    // ondan SONRA boşalabilir (iOS'ta arka plan senkronu yok — iPad kilitliyse
+    // kuyruk saatlerce bekler). Bu kaydı reddetmek malı yok saymak olurdu; mal
+    // fiziksel olarak gelmiş.
+    //
+    // 24 saat sınırı: geçmiş oturumlara süresiz kayıt sızmasın. Bundan eskisi
+    // reddedilir ve operatörün kuyruk panelinde görünür — elle girilecek.
+    //
+    // Pencere oturumun AÇILIŞINDAN (createdAt) sayılıyor: modelde completedAt
+    // yok ve bir bölge oturumu aynı gün açılıp kapanıyor. Oturum bir günden uzun
+    // açık kaldıysa offline kayıt reddedilir — bilinçli sıkı taraf.
+    const GRACE_MS = 24 * 60 * 60 * 1000
+    if (session.status !== 'ACTIVE') {
+      const fresh = Date.now() - new Date(session.createdAt).getTime() < GRACE_MS
+      if (!clientId || !fresh) {
+        return res.status(400).json({ error: 'Aktif bölge oturumu bulunamadı' })
+      }
     }
 
     if (producerId) {
@@ -256,7 +315,8 @@ export async function createEntryBatch(req, res, next) {
     // Birim ürünün güncel ayarından okunur ve Entry'ye snapshot yazılır.
     const product = await prisma.product.findUnique({
       where: { id: Number(productId) },
-      select: { unit: true },
+      // name yalnızca denetim kaydının okunabilir olması için (bkz. auditCreate)
+      select: { unit: true, name: true },
     })
     if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' })
     const countable = isCountable(product.unit)
@@ -306,6 +366,14 @@ export async function createEntryBatch(req, res, next) {
 
     // $transaction kalır: çok satır, all-or-nothing olmalı
     const created = await prisma.$transaction(async (tx) => {
+      // İLK ADIM idempotency kaydı: PK ihlali burada patlarsa hiçbir satır
+      // yazılmaz. Yarış durumu böyle kapanıyor — retry'ın iki isteği aynı anda
+      // gelse bile ikincisi bu INSERT'te duruyor.
+      if (clientId) {
+        await tx.syncedBatch.create({
+          data: { clientId, kind: 'ENTRY_BATCH', recordIds: [], createdBy },
+        })
+      }
       const results = []
       for (const e of entries) {
         const entry = await tx.entry.create({
@@ -318,7 +386,14 @@ export async function createEntryBatch(req, res, next) {
             weight: Number(e.weight),
             unit: product.unit,
             weak: Boolean(weak),
-            disposableCase: Boolean(disposableCase),
+            // Siyah kasa ve B kalite SATIR BAZINDA gelebilir (2026-08-18): aynı
+            // partide bir pazara siyah kasayla, diğerine normal kasayla mal
+            // gidebiliyor. Satır değeri yoksa parti geneli uygulanır — eski
+            // istemciler bu alanları hiç göndermiyor, onlar için davranış aynı.
+            disposableCase: typeof e.disposableCase === 'boolean'
+              ? e.disposableCase
+              : Boolean(disposableCase),
+            bQuality: typeof e.bQuality === 'boolean' ? e.bQuality : Boolean(bQuality),
             source: discardMarketIds.has(Number(e.marketId)) ? 'DISCARD' : 'HARVEST',
             marketId: Number(e.marketId),
             createdBy,
@@ -342,11 +417,34 @@ export async function createEntryBatch(req, res, next) {
         }
         results.push(entry)
       }
+
+      // Yazılan id'leri idempotency kaydına işle: aynı clientId tekrar gelirse
+      // ne yazdığımızı söyleyebilelim (yukarıdaki ön kontrol bunu döndürüyor).
+      if (clientId) {
+        await tx.syncedBatch.update({
+          where: { clientId },
+          data: { recordIds: results.map((r) => r.id) },
+        })
+      }
       return results
     })
 
+    // Parti tek satır olarak loglanıyor: 20 satırlık mal kabul 20 log üretirse
+    // denetim ekranı okunmaz hale gelir. recordCount kaç satır olduğunu söyler.
+    auditCreate(
+      req, 'entry', created[0]?.id ?? null,
+      `Mal kabul · ${created.length} satır · ${product?.name ?? ''}`.trim(),
+      created.length,
+    )
     res.status(201).json(created)
   } catch (err) {
+    // Eşzamanlı retry: aynı clientId'yi iki istek birden yazmaya çalıştı.
+    // Kaybeden taraf hata değil, "zaten yazıldı" görmeli — yoksa istemci kalemi
+    // REJECTED işaretler ve operatöre sahte hata gösterilir.
+    if (clientId && err?.code === 'P2002') {
+      const seen = await prisma.syncedBatch.findUnique({ where: { clientId } })
+      return res.json({ alreadySynced: true, recordIds: seen?.recordIds ?? [] })
+    }
     next(err)
   }
 }

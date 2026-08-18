@@ -186,6 +186,9 @@ export async function getEntryHistory(req, res, next) {
       // Admin bu ekrandan siyah kasa işaretini düzeltebiliyor; source da
       // (mal kabul / iade / imha) export sekmelerinde ayrım için lazım.
       disposableCase: e.disposableCase,
+      // Yalnızca etiket (kasa/fiyat etkisi yok) ama export'ta sütunu var —
+      // yanıt açıkça alan seçtiği için burada listelenmesi şart.
+      bQuality: e.bQuality,
       unit: e.unit,
       source: e.source,
         exitedAt: e.exitItems[0]?.exit?.createdAt ?? null,

@@ -40,7 +40,6 @@ const qtyCell = (entry) => (isCountable(entry.unit)
 // 2012'de eklendi) yok ve jsPDF onu sessizce düşürüyor — çıktıda "18.500,75 "
 // kalıyordu. Tablo başlığı da "Birim Fiyat (TL)" diyor, ekranla da tutarlı.
 const num = (n) => (n === null || n === undefined ? '—' : new Intl.NumberFormat('tr-TR').format(Number(n)))
-const money = (n) => (n === null || n === undefined ? '—' : `${fmt(n)} TL`)
 
 // targetWin: çağıran, tıklama anında senkron açılmış boş bir sekme verebilir.
 // iOS Safari `await`ten sonraki window.open()'ı popup sayıp engelliyor; hazır
@@ -67,10 +66,11 @@ export async function generateIrsaliye(exit, targetWin = null) {
 
   const isEdited = !!exit.editedAt
   // Header her sayfada tekrar eder; yüksekliği düzenleme notuna göre değişir.
-  // Bayi özeti (kasa + borç) iki satır daha ekledi: 29→41.
-  // Sığma kontrolü: tablo 41'de başlar, 21 satır × 8mm + başlık ≈ 176mm →
-  // 217mm'de biter, imzalar 243mm'de başlar. PAGE_ROWS değişmedi.
-  const headerH = isEdited ? 46 : 41
+  // Geçmiş: bayi özeti (kasa + borç) 29→41 yapmıştı; borç satırı 2026-08-18'de
+  // kaldırılınca 6mm geri alındı → 41→35.
+  // Sığma kontrolü: tablo 35'te başlar, 21 satır × 8mm + başlık ≈ 176mm →
+  // 211mm'de biter, imzalar 243mm'de başlar. PAGE_ROWS değişmedi.
+  const headerH = isEdited ? 40 : 35
 
   function drawHeader(pageNo, pageCount) {
     doc.setTextColor(0, 0, 0)
@@ -106,17 +106,18 @@ export async function generateIrsaliye(exit, targetWin = null) {
 
     // Bayi özeti — IrsaliyePrint.jsx ile aynı alanlar, aynı sıra, aynı renkler.
     // Bu fişin kendi kasa sayısı siyah (teslimat), bayinin üstünde duran
-    // bakiyeler kırmızı (geri beklenen kasa ve para).
+    // kasa bakiyesi kırmızı (geri beklenen kasa).
+    //
+    // Toplam Borç KALDIRILDI (2026-08-18, saha isteği). Sunucu marketDebt'i
+    // göndermeye devam ediyor, başka ekranlar kullanıyor.
     doc.text(`İrsaliye Kasa: ${num(exit.trackedCases)}`, SIDE, infoY + 12)
 
     doc.setTextColor(180, 0, 0)
     doc.text(`Toplam Kasa Bakiyesi: ${num(exit.marketCaseBalance)}`, pageW / 2, infoY + 12)
-    // Borç tek başına satırda — rakam gözden kaçmasın.
-    doc.text(`Toplam Borç: ${money(exit.marketDebt)}`, SIDE, infoY + 18)
     doc.setTextColor(0, 0, 0)
 
     doc.setLineWidth(0.4)
-    doc.line(SIDE, infoY + 22, pageW - SIDE, infoY + 22)
+    doc.line(SIDE, infoY + 16, pageW - SIDE, infoY + 16)
   }
 
   function drawFooter() {
@@ -168,7 +169,7 @@ export async function generateIrsaliye(exit, targetWin = null) {
   // artık her satırda dolu: kasa sayımı birimden bağımsız.
   // DİKKAT: IrsaliyePrint.jsx ile KİLİT ADIMLI değişir, ayrışırsa ekran çıktısı
   // ile PDF farklı basar.
-  const head = [['Ürün', 'Kasa', 'Miktar', 'Birim Fiyat (TL)']]
+  const head = [['No', 'Ürün', 'Kasa', 'Miktar', 'Birim Fiyat (TL)']]
 
   const body = (exit.items ?? []).map((item) => {
     const ppk = item.pricePerKg
@@ -183,23 +184,30 @@ export async function generateIrsaliye(exit, targetWin = null) {
 
   // Sayfa başına tam PAGE_ROWS satır: autoTable'ın kendi akışına bırakmak yerine
   // elle böl, her sayfayı kendimiz çizelim (header/footer sabit kalsın diye).
+  //
+  // Sıra no bölmeden SONRA ekleniyor: numara HER SAYFADA 01'den başlamalı
+  // (saha isteği). PAGE_ROWS=21 olduğu için 21'i geçmez.
   const chunks = []
   for (let i = 0; i < body.length; i += PAGE_ROWS) chunks.push(body.slice(i, i + PAGE_ROWS))
   if (!chunks.length) chunks.push([])
+  const numbered = chunks.map((chunk) =>
+    chunk.map((row, idx) => [String(idx + 1).padStart(2, '0'), ...row])
+  )
 
-  // Miktar hücresi artık birim ekiyle ("340,00 kg" / "30 bağ") geldiği için
-  // 2. kolon biraz genişledi; ürün adı kalan alanı alır.
+  // Miktar hücresi birim ekiyle geliyor ("340,00 kg" / "30 bağ"); ürün adı
+  // kalan alanı alır. No sütunu 12mm — index.css .print-table .tc ile aynı.
   const usable = pageW - SIDE * 2
   const columnStyles = {
-    0: { cellWidth: usable - 116, halign: 'left', overflow: 'ellipsize' },
-    1: { cellWidth: 28, halign: 'right' },
-    2: { cellWidth: 48, halign: 'right' },
-    3: { cellWidth: 40, halign: 'right' },
+    0: { cellWidth: 12, halign: 'center' },
+    1: { cellWidth: usable - 128, halign: 'left', overflow: 'ellipsize' },
+    2: { cellWidth: 28, halign: 'right' },
+    3: { cellWidth: 48, halign: 'right' },
+    4: { cellWidth: 40, halign: 'right' },
   }
 
-  chunks.forEach((chunk, i) => {
+  numbered.forEach((chunk, i) => {
     if (i > 0) doc.addPage()
-    drawHeader(i + 1, chunks.length)
+    drawHeader(i + 1, numbered.length)
 
     autoTable(doc, {
       startY: headerH,
@@ -218,14 +226,16 @@ export async function generateIrsaliye(exit, targetWin = null) {
       },
       columnStyles,
       didParseCell: (data) => {
-        // Başlık ve değerleri aynı kenarda hizala (sayısal kolonlar sağa, ürün sola)
+        // Başlık ve değerleri aynı kenarda hizala. Sıra no ortada, ürün solda,
+        // sayısal kolonlar sağda — columnStyles ile aynı düzen.
         if (data.section === 'head') {
-          data.cell.styles.halign = data.column.index === 0 ? 'left' : 'right'
+          const i = data.column.index
+          data.cell.styles.halign = i === 0 ? 'center' : i === 1 ? 'left' : 'right'
         }
       },
     })
 
-    if (i === chunks.length - 1) drawSignatures()
+    if (i === numbered.length - 1) drawSignatures()
     drawFooter()
   })
 

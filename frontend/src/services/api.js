@@ -1,12 +1,17 @@
 import axios from 'axios'
 import { useConnectionStore } from '@/store/connectionStore'
+import { cacheGet, cachePut } from '@/lib/offlineDb'
+import { useQueueStore } from '@/store/queueStore'
 
 // Timeout ŞART: yoksa ölü keep-alive bağlantısında (mobil NAT bağlantıyı sessizce
 // düşürür) tarayıcı TCP retransmit'i bekler — istek ~2 dk asılı kalır, sonra
 // "Network Error" döner. Kullanıcı bunu "giriş başarısız" sanıyordu.
 const TIMEOUT_MS = 15000
 
-const http = axios.create({ baseURL: '/api', timeout: TIMEOUT_MS })
+// export: offline kuyruk motoru (lib/syncQueue.js) aynı instance'ı kullanır —
+// token interceptor'ı, retry'ı ve kesinti raporlaması ortak olsun. Kuyruk kendi
+// axios'unu kursa bunların hepsini tekrar kurmak gerekirdi.
+export const http = axios.create({ baseURL: '/api', timeout: TIMEOUT_MS })
 
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('hal_admin_token')
@@ -97,8 +102,36 @@ export async function fetchAllPages(fn, params = {}, { pageSize = 200, maxRows =
   return out
 }
 
+// Referans veri okuması: online'ken IndexedDB'ye yazar, ağ hatasında oradan
+// okur. Mal kabul formu pazar/ürün listesi olmadan AÇILMAZ — kesintide form
+// boş gelirse offline kuyruk da işe yaramaz.
+//
+// Yalnızca AĞ hatasında cache'e düşer: 401/403/500 geldiğinde bayat veri
+// döndürmek yanlış olur (yetki kalkmış olabilir, sunucu hatası gizlenir).
+//
+// Cache'ten okunduğunda tarih store'a yazılır ki ekran "veri 14:32 itibarıyla"
+// diyebilsin. Bayat veriyi güncel gibi göstermek offline çalışmanın en sinsi
+// hatası: operatör dün kapanmış bir pazara mal yazar.
+async function cached(key, fetcher) {
+  try {
+    const data = await fetcher()
+    cachePut(key, data).catch(() => {}) // kota dolu olabilir, okuma yine çalışsın
+    useQueueStore.getState().setRefDataAt(null)
+    return data
+  } catch (err) {
+    if (!isNetworkError(err)) throw err
+    const hit = await cacheGet(key)
+    if (!hit) throw err
+    useQueueStore.getState().setRefDataAt(hit.fetchedAt)
+    return hit.data
+  }
+}
+
 export const api = {
   // Region (bölge oturumu)
+  // NOT: bunlar offline ÇALIŞMAZ. Kesintide yeni bölge oturumu açılamaz —
+  // entry'lerin bağlanacağı regionSessionId sunucudan geliyor (bkz. syncQueue
+  // HANDLERS yorumu). Aktif oturum varken mal kabul offline sürer.
   startRegion: (regionId) => unwrap(http.post('/region/start', { regionId })),
   completeRegion: (regionSessionId) => unwrap(http.post('/region/complete', { regionSessionId })),
 
@@ -108,13 +141,18 @@ export const api = {
   deleteEntry: (id) => unwrap(http.delete(`/entry/${id}`)),
   getSessionEntries: (sessionId) => unwrap(http.get(`/region/${sessionId}/entries`)),
 
-  // Public — mal kabul paneli için
-  getRegions: () => unwrap(http.get('/regions')),
-  getProducersForRegion: (regionId) => unwrap(http.get(`/regions/${regionId}/producers`)),
-  getProducts: () => unwrap(http.get('/products')),
+  // Public — mal kabul paneli için. Üçü de mal kabul akışının offline
+  // çalışabilmesi için cache'li (bkz. cached()).
+  getRegions: () => cached('regions', () => unwrap(http.get('/regions'))),
+  getProducersForRegion: (regionId) =>
+    cached(`producers:${regionId}`, () => unwrap(http.get(`/regions/${regionId}/producers`))),
+  getProducts: () => cached('products', () => unwrap(http.get('/products'))),
 
   // Markets
-  getMarkets: () => unwrap(http.get('/markets')),
+  // Cache'li: mal kabulde her satır pazar seçiyor, liste olmadan form kilitli.
+  // withPending varyantı (çıkış ekranı) BİLEREK cache'siz — bekleyen kasa
+  // sayısı canlı veri, bayatı yanlış karar üretir.
+  getMarkets: () => cached('markets', () => unwrap(http.get('/markets'))),
   // Çıkış ekranı için: bayi listesi + bekleyen kasa sayısı (yetki gerektirir)
   getMarketsWithPending: () => unwrap(http.get('/markets', { params: { withPending: 1 } })),
   getMarketEntries: (marketId) => unwrap(http.get(`/markets/${marketId}/entries`)),
@@ -123,6 +161,11 @@ export const api = {
 
   // Exit
   createExit: (marketId, entryIds) => unwrap(http.post('/exit', { marketId, entryIds })),
+  // Çıkış ekranı kilidi: aynı pazarı iki operatör aynı anda açmasın.
+  // POST hem alır hem yeniler (ekran 30 sn'de bir çağırıyor); 409 = kilit
+  // başkasında. DELETE best-effort — gitmezse sunucu 2 dk sonra düşürüyor.
+  acquireExitLock: (marketId) => unwrap(http.post(`/exit/lock/${marketId}`)),
+  releaseExitLock: (marketId) => unwrap(http.delete(`/exit/lock/${marketId}`)),
   // toMarketId verilmezse kalem DEPO'ya döner (satırdaki X butonu); verilirse
   // doğrudan o pazara aktarılır (yanlış pazar düzeltmesi).
   // quantity verilmezse kalemin TAMAMI taşınır; verilirse kalem bölünür

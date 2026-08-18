@@ -13,7 +13,17 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      // Hedef env'den override edilebilir: aynı makinede ikinci bir backend'e
+      // (ayrı test veritabanı) karşı çalışmak için port değiştirmek gerekiyordu.
+      '/api': { target: process.env.VITE_API_TARGET ?? 'http://localhost:3001', changeOrigin: true },
+    },
+  },
+  // preview de proxy'lemeli: service worker YALNIZCA production build'de kayıtlı
+  // (bkz. main.jsx), yani offline kabuğu ancak burada denenebiliyor. Proxy
+  // olmadan preview'da API çağrıları 404 döner ve test yanıltıcı olur.
+  preview: {
+    proxy: {
+      '/api': { target: process.env.VITE_API_TARGET ?? 'http://localhost:3001', changeOrigin: true },
     },
   },
   build: {

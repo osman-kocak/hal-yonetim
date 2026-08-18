@@ -1,4 +1,5 @@
 import { prisma } from '../utils/prismaClient.js'
+import { auditCreate, auditDelete } from '../utils/audit.js'
 import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
 import { parsePagination, paginated } from '../utils/pagination.js'
 
@@ -102,6 +103,10 @@ export async function createMovement(req, res, next) {
       data,
       include: { market: true, region: true },
     })
+    auditCreate(
+      req, 'case-movement', mv.id,
+      `${mv.type} · ${mv.qty} kasa · ${mv.market ? `Pazar #${mv.market.no}` : mv.region?.name ?? '—'}`,
+    )
     res.status(201).json(mv)
   } catch (err) {
     next(err)
@@ -136,6 +141,7 @@ export async function deleteMovement(req, res, next) {
       })
     }
     await prisma.caseMovement.delete({ where: { id } })
+    auditDelete(req, 'case-movement', id, `${mv.type} · ${mv.qty} kasa silindi`)
     res.status(204).end()
   } catch (err) {
     next(err)

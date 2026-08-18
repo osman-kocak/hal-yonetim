@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/services/api'
+import { api, isNetworkError } from '@/services/api'
+import { enqueue } from '@/lib/syncQueue'
+import { newClientId } from '@/lib/offlineDb'
 import { useAppStore } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
 import { Input, MarketAutocomplete } from '@/components/ui/Input'
@@ -7,12 +9,27 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { isCountable, qtyLabel, unitLabel } from '@/utils/formatters'
-import { ArrowLeft, AlertTriangle, Package } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, Package, Layers } from 'lucide-react'
 
 const BATCH = 3
 
-function makeSlot() {
-  return { caseCount: '', weight: '', marketId: null, marketQuery: '' }
+// Slot alanı → doğrulama hatası anahtarı. Yalnızca isim ayrışan alanlar burada;
+// gerisi kendi adıyla eşleşiyor (caseCount, weight).
+const ERROR_KEY_BY_FIELD = { marketId: 'market', marketQuery: 'market' }
+
+// Siyah kasa ve B kalite SATIR BAZINDA tutuluyor (2026-08-18): aynı partide bir
+// pazara siyah kasayla, diğerine normal kasayla mal gidebiliyor. Üstteki genel
+// tikler "hepsine uygula" düğmesi gibi çalışır ve yeni açılan satırların
+// başlangıç değerini belirler — bkz. applyToAll / updateSlot.
+function makeSlot(defaults = {}) {
+  return {
+    caseCount: '',
+    weight: '',
+    marketId: null,
+    marketQuery: '',
+    disposableCase: !!defaults.disposableCase,
+    bQuality: !!defaults.bQuality,
+  }
 }
 
 // Girilmiş ama henüz kaydedilmemiş satırlar sessionStorage'da tutulur.
@@ -36,12 +53,14 @@ function loadDraft(sessionId, productId) {
   }
 }
 
-function saveDraft(sessionId, productId, slots, weak, disposableCase) {
+function saveDraft(sessionId, productId, slots, weak, disposableCase, bQuality) {
   try {
     const filled = slots.filter((s) => s.caseCount || s.weight || s.marketId)
     if (!filled.length) { sessionStorage.removeItem(DRAFT_KEY); return }
+    // Satır bazlı işaretler slots içinde taşınıyor; buradaki genel değerler
+    // yalnızca üstteki tiklerin konumunu geri yüklemek için.
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-      sessionId, productId, slots, weak, disposableCase,
+      sessionId, productId, slots, weak, disposableCase, bQuality,
     }))
   } catch {
     // kota/private mode — taslak kritik değil
@@ -60,7 +79,21 @@ function SlotCard({ slot, idx, markets, onChange, errors, countable, unit }) {
   return (
     <div className="bg-white border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-card">
       <p className="text-xs font-semibold text-text-muted uppercase tracking-wide">#{idx + 1}</p>
+      {/* Alan sırası KASA → PAZAR → MİKTAR (2026-08-18, saha isteği): operatör
+          malı önce sayıyor, pazarı sonra okuyor. Enter ile alan atlama sırası
+          DOM sırasını izlediği için (bkz. handleFormKeyDown) ayrıca ayar
+          gerekmiyor. */}
       <div className="grid grid-cols-3 gap-3">
+        <Input
+          label={countable ? 'Kasa (ops.)' : 'Kasa'}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          placeholder="0"
+          value={slot.caseCount}
+          onChange={(e) => onChange('caseCount', e.target.value.replace(/\D/g, ''))}
+          error={errors?.caseCount}
+        />
         <MarketAutocomplete
           label="Pazar No"
           markets={markets}
@@ -75,16 +108,6 @@ function SlotCard({ slot, idx, markets, onChange, errors, countable, unit }) {
             }
           }}
           error={errors?.market}
-        />
-        <Input
-          label={countable ? 'Kasa (ops.)' : 'Kasa'}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          placeholder="0"
-          value={slot.caseCount}
-          onChange={(e) => onChange('caseCount', e.target.value.replace(/\D/g, ''))}
-          error={errors?.caseCount}
         />
         <Input
           label={qtyLabel(unit)}
@@ -112,7 +135,47 @@ function SlotCard({ slot, idx, markets, onChange, errors, countable, unit }) {
           {markets.find((m) => m.id === slot.marketId)?.name}
         </p>
       )}
+      {/* Satır bazlı işaretler. Üstteki genel tikler bunları toplu değiştirir;
+          buradan tek satır ayrıştırılabilir. */}
+      <div className="flex flex-wrap gap-2">
+        <SlotFlag
+          active={slot.disposableCase}
+          onChange={(v) => onChange('disposableCase', v)}
+          icon={Package}
+          label="Siyah Kasa"
+          activeClass="bg-text-primary/10 text-text-primary border-text-primary/40"
+        />
+        <SlotFlag
+          active={slot.bQuality}
+          onChange={(v) => onChange('bQuality', v)}
+          icon={Layers}
+          label="B Kalite"
+          activeClass="bg-warning/15 text-warning border-warning/40"
+        />
+      </div>
     </div>
+  )
+}
+
+// Kart içi küçük işaret. Üstteki parti geneli tiklerle aynı görsel dil, tek
+// farkı boyut — dokunma hedefi yine parmakla kullanılabilir olmalı (iPad).
+function SlotFlag({ active, onChange, icon: Icon, label, activeClass }) {
+  return (
+    <label
+      className={
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer select-none transition-colors ' +
+        (active ? activeClass : 'bg-gray-100 text-text-muted border-border hover:bg-gray-200')
+      }
+    >
+      <input
+        type="checkbox"
+        checked={active}
+        onChange={(e) => onChange(e.target.checked)}
+        className="w-3.5 h-3.5 cursor-pointer"
+      />
+      <Icon className="w-3.5 h-3.5" />
+      {label}
+    </label>
   )
 }
 
@@ -130,7 +193,7 @@ export function EntryForm() {
   // Taslak varsa oradan başla — kesinti/yenileme sonrası girilen satırlar durur
   const [slots, setSlots] = useState(() => {
     const d = loadDraft(activeSession?.id, selectedProduct?.id)
-    return d?.slots?.length ? d.slots : Array.from({ length: BATCH }, makeSlot)
+    return d?.slots?.length ? d.slots : Array.from({ length: BATCH }, () => makeSlot())
   })
   const [slotErrors, setSlotErrors] = useState([])
   const [loading, setLoading] = useState(false)
@@ -138,8 +201,17 @@ export function EntryForm() {
   const [weak, setWeak] = useState(() => !!loadDraft(activeSession?.id, selectedProduct?.id)?.weak)
   // Siyah/karton kasa: atılan kasa, stoklu kasa değil. Kasa muhasebesine hiç
   // girmez. weak'ten bağımsız — ikisi birlikte işaretlenebilir.
+  //
+  // Bu iki state artık PARTİ GENELİ TİK: değeri doğrudan kayda gitmiyor, tüm
+  // satırlara uygulanıyor (applyToAll) ve yeni açılan satırların başlangıcı
+  // oluyor. Gerçek değer her satırın kendi içinde (slot.disposableCase).
   const [disposableCase, setDisposableCase] = useState(
     () => !!loadDraft(activeSession?.id, selectedProduct?.id)?.disposableCase
+  )
+  // B kalite: yalnızca etiket. Kasa hesabına karışmaz, fiyatı değiştirmez —
+  // siyah kasadan farkı bu (bkz. backend utils/cases.js).
+  const [bQuality, setBQuality] = useState(
+    () => !!loadDraft(activeSession?.id, selectedProduct?.id)?.bQuality
   )
   // Ürün bağ/adetle mi satılıyor? Miktar ekseni, etiketler ve doğrulama buna
   // bağlı — kasa alanı ise her birimde var.
@@ -153,8 +225,15 @@ export function EntryForm() {
   // Her değişiklikte taslağı yaz. Kaydetme başarılı olunca temizleniyor
   // (bkz. persistEntries) — yoksa kaydedilmiş satırlar tekrar görünürdü.
   useEffect(() => {
-    saveDraft(activeSession?.id, selectedProduct?.id, slots, weak, disposableCase)
-  }, [activeSession?.id, selectedProduct?.id, slots, weak, disposableCase])
+    saveDraft(activeSession?.id, selectedProduct?.id, slots, weak, disposableCase, bQuality)
+  }, [activeSession?.id, selectedProduct?.id, slots, weak, disposableCase, bQuality])
+
+  // Parti geneli tik → tüm satırlara uygula. "Varsayılan" değil "hepsine uygula"
+  // seçildi: operatör üstteki tiki açtığında tek tek 20 satırı düzeltmek zorunda
+  // kalmamalı. Tikten sonra istediği satırı kartından tekrar ayarlayabilir.
+  function applyToAll(field, value) {
+    setSlots((prev) => prev.map((s) => ({ ...s, [field]: value })))
+  }
 
   // Enter = sonraki form alanına geç (Tab gibi). Submit/Button'da default davranış
   function handleFormKeyDown(e) {
@@ -184,14 +263,22 @@ export function EntryForm() {
       const lastBatchStart = next.length - BATCH
       const lastBatch = next.slice(lastBatchStart)
       if (lastBatch.every(slotReady)) {
-        return [...next, ...Array.from({ length: BATCH }, makeSlot)]
+        // Yeni satırlar parti geneli tiklerle açılır — üstte "siyah kasa" açıkken
+        // eklenen satır normal kasaya düşerse operatör fark etmez.
+        return [...next, ...Array.from({ length: BATCH }, () => makeSlot({ disposableCase, bQuality }))]
       }
       return next
     })
 
     setSlotErrors((prev) => {
       const next = [...prev]
-      if (next[idx]) next[idx] = { ...next[idx], [field]: undefined }
+      // Hata anahtarı alan adıyla AYNI DEĞİL: pazar iki alandan besleniyor
+      // (marketId + marketQuery) ama hatası tek anahtarda ('market') tutuluyor.
+      // Eşleme olmadan pazar hatası hiç temizlenmiyordu — operatör pazarı doğru
+      // seçtiği halde "Pazar seçilmeli" yazısı ekranda kalıyor, kartın altındaki
+      // pazar adı da gizlendiği için seçimin tuttuğu görünmüyordu.
+      const errKey = ERROR_KEY_BY_FIELD[field] ?? field
+      if (next[idx]) next[idx] = { ...next[idx], [errKey]: undefined }
       return next
     })
   }
@@ -220,29 +307,70 @@ export function EntryForm() {
     return true
   }
 
+  // Önce doğrudan göndermeyi dener, YALNIZCA ağ hatasında offline kuyruğa düşer.
+  // Dönüş: 'SENT' (sunucuda) | 'QUEUED' (iPad'de bekliyor).
+  //
+  // Neden "her zaman kuyruğa yaz" değil: online'da operatör anında "kaydedildi"
+  // onayı görüyor, bunu kaybetmek istemiyoruz — kasa/borç hesabı sunucuda ve
+  // hata (kapanmış oturum, silinmiş pazar) hemen dönmeli.
+  //
+  // clientId BURADA üretiliyor, ilk denemeye de gidiyor: timeout aldığımızda
+  // sunucunun kaydı yazıp yanıtı kaybetmiş olma ihtimali var. Kuyruğa aynı
+  // clientId ile düşünce backend ikinci kaydı yazmıyor (bkz. offlineDb.queueAdd).
   async function persistEntries() {
-    await api.createEntryBatch({
+    const clientId = newClientId()
+    const payload = {
       regionSessionId: activeSession.id,
       productId: selectedProduct.id,
       producerId: selectedProducer?.id,
       weak,
+      // Parti geneli değerler geriye uyum için gönderiliyor: sunucu satır
+      // değerini bulamazsa bunu kullanıyor (bkz. entryController.createEntryBatch).
       disposableCase,
+      bQuality,
       entries: readySlots.map((s) => ({
         // Kasa her birimde gider; bağ/adette boş bırakılmışsa 0 (kasasız giriş)
         caseCount: Number(s.caseCount) || 0,
         weight: Number(s.weight),
         marketId: s.marketId,
+        // Asıl değer burada — satır kendi işaretini taşır
+        disposableCase: !!s.disposableCase,
+        bQuality: !!s.bQuality,
       })),
-    })
-    // Sunucuya yazıldı → taslak artık geçersiz
-    clearDraft()
+    }
+
+    try {
+      await api.createEntryBatch({ ...payload, clientId })
+      clearDraft() // sunucuya yazıldı → taslak artık geçersiz
+      return 'SENT'
+    } catch (err) {
+      // Validasyon/yetki hatası kuyruğa GİRMEZ: tekrar denemek aynı hatayı
+      // verir, operatör düzeltmeli. Taslak da silinmez, satırlar ekranda kalır.
+      if (!isNetworkError(err)) throw err
+      await enqueue('ENTRY_BATCH', payload, clientId)
+      clearDraft() // kuyrukta kalıcı olarak duruyor, taslak kopyası artık gerekmiyor
+      return 'QUEUED'
+    }
+  }
+
+  // Kuyruğa alınan kayıt için mesaj: "kaydedildi" DEMİYORUZ. Operatör verinin
+  // sunucuda olduğunu sanıp iPad'i kapatırsa kuyruk ilerlemez (iOS'ta arka plan
+  // senkronu yok) — bu yüzden mesaj açıkça "gönderilecek" diyor.
+  function savedToast(result, suffix = '') {
+    if (result === 'QUEUED') {
+      addToast(
+        `${readySlots.length} giriş kuyruğa alındı — bağlantı gelince gönderilecek. Uygulamayı kapatmayın.${suffix}`,
+        'warning'
+      )
+    } else {
+      addToast(`${readySlots.length} giriş kaydedildi ✓${suffix}`)
+    }
   }
 
   async function doSaveAndContinueProduct() {
     setLoading(true)
     try {
-      await persistEntries()
-      addToast(`${readySlots.length} giriş kaydedildi ✓`)
+      savedToast(await persistEntries())
       backToProducts()
     } catch (err) {
       addToast(err.response?.data?.error ?? 'Kayıt başarısız', 'error')
@@ -254,8 +382,8 @@ export function EntryForm() {
   async function doSaveAndFinishProducer() {
     setLoading(true)
     try {
-      await persistEntries()
-      addToast(`${readySlots.length} giriş kaydedildi · Üretici tamamlandı ✓`)
+      const result = await persistEntries()
+      savedToast(result, ' · Üretici tamamlandı')
       backToProducers()
     } catch (err) {
       addToast(err.response?.data?.error ?? 'Kayıt başarısız', 'error')
@@ -314,9 +442,11 @@ export function EntryForm() {
           Zayıf Mal
         </label>
         {/* Siyah/karton kasa: kasa muhasebesine hiç girmez (atılan kasa).
-            Zayıf Mal'dan bağımsız, ikisi birlikte seçilebilir. */}
+            Zayıf Mal'dan bağımsız, ikisi birlikte seçilebilir.
+            Bu tik PARTİNİN TAMAMINA uygulanır; tek satırı ayrıştırmak için
+            kartın kendi "Siyah Kasa" işareti kullanılır. */}
         <label
-          title="Siyah/karton kasa — atılan kasa, kasa hesabına girmez"
+          title="Siyah/karton kasa — atılan kasa, kasa hesabına girmez. Tüm satırlara uygulanır."
           className={
             'inline-flex items-center gap-2 rounded-full font-semibold text-base px-3 py-1 cursor-pointer select-none transition-colors ' +
             (disposableCase
@@ -327,11 +457,37 @@ export function EntryForm() {
           <input
             type="checkbox"
             checked={disposableCase}
-            onChange={(e) => setDisposableCase(e.target.checked)}
+            onChange={(e) => {
+              setDisposableCase(e.target.checked)
+              applyToAll('disposableCase', e.target.checked)
+            }}
             className="w-4 h-4 accent-gray-700 cursor-pointer"
           />
           <Package className="w-4 h-4" />
           Siyah/Karton Kasa
+        </label>
+        {/* B kalite: SADECE ETİKET. Kasa hesabına karışmaz, fiyatı değiştirmez —
+            siyah kasadan farkı bu. Kaldırılan Quality tablosuyla ilgisi yok. */}
+        <label
+          title="İkinci kalite — kasa hesabını ve fiyatı etkilemez, yalnızca işaret. Tüm satırlara uygulanır."
+          className={
+            'inline-flex items-center gap-2 rounded-full font-semibold text-base px-3 py-1 cursor-pointer select-none transition-colors ' +
+            (bQuality
+              ? 'bg-warning/15 text-warning border border-warning/40'
+              : 'bg-gray-100 text-text-muted border border-border hover:bg-gray-200')
+          }
+        >
+          <input
+            type="checkbox"
+            checked={bQuality}
+            onChange={(e) => {
+              setBQuality(e.target.checked)
+              applyToAll('bQuality', e.target.checked)
+            }}
+            className="w-4 h-4 accent-amber-600 cursor-pointer"
+          />
+          <Layers className="w-4 h-4" />
+          B Kalite
         </label>
       </div>
 

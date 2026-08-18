@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAppStore } from '@/store/appStore'
@@ -15,9 +15,20 @@ import { ArrowLeft, CheckCircle, MapPin, User } from 'lucide-react'
 import { formatWeight, sumQty } from '@/utils/formatters'
 
 export function EntryPage() {
-  const { step, activeSession, selectedProducer, completeSession } = useAppStore()
+  const { step, activeSession, selectedProducer, selectedProduct, completeSession } = useAppStore()
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
+
+  // Adım değişince sayfayı başa sar.
+  //
+  // NEDEN: altta duran "Son Girişler" listesi oturum ilerledikçe uzuyor ve
+  // adım değişiminde tarayıcı scroll konumunu koruyor — operatör yeni ürünü
+  // seçtiğinde ekran listenin dibinde açılıyor, formu görmek için yukarı
+  // kaydırması gerekiyordu. Ürün id'si de bağımlılıkta: aynı adımda ürün
+  // değiştirmek de yeni bir sayfa sayılır.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [step, selectedProduct?.id])
   const [completing, setCompleting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [summary, setSummary] = useState(null) // { entryCount, totalCases, totalWeight, producerCount }

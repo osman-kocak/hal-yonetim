@@ -39,3 +39,4 @@ scripts/deploy.env
 # Şablonu için: backend/scripts/producers.data.example.js
 # Deploy etkilenmez — deploy.sh backend/'i rsync'ler, git'e bakmaz.
 backend/scripts/producers.data.js
+.gstack/

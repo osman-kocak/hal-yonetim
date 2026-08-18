@@ -5,6 +5,7 @@ import { prisma } from './utils/prismaClient.js'
 import apiRouter from './routes/index.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { assertNetworkPolicy } from './middleware/network.js'
+import { purgeOldAuditLogs, AUDIT_RETENTION_DAYS } from './utils/audit.js'
 
 if (!process.env.JWT_SECRET) {
   console.error('FATAL: JWT_SECRET ortam değişkeni tanımlanmamış')
@@ -31,8 +32,28 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }))
 
 app.use(errorHandler)
 
+// Denetim kaydı saklama süresi. Ayrı bir cron altyapısı yok; tek süreç
+// çalıştığı için uygulama içi zamanlayıcı yeterli.
+//
+// Açılışta bir kez + günde bir: sunucu her gece yeniden başlatılmıyor, sadece
+// açılışta çalışsa uzun süre ayakta kalan süreçte temizlik hiç yapılmazdı.
+// unref(): bu zamanlayıcı süreci hayatta TUTMAMALI, kapanışı geciktirmesin.
+const AUDIT_PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+function scheduleAuditPurge() {
+  const run = () => purgeOldAuditLogs().catch((err) => {
+    // Temizlik başarısız olursa sunucu ayakta kalmalı — bir sonraki turda yeniden denenir.
+    console.error('[audit] temizlik başarısız:', err.message)
+  })
+  run()
+  const timer = setInterval(run, AUDIT_PURGE_INTERVAL_MS)
+  timer.unref?.()
+  console.log(`[audit] denetim kaydı saklama süresi: ${AUDIT_RETENTION_DAYS} gün`)
+}
+
 async function start() {
   await prisma.$connect()
+  scheduleAuditPurge()
   app.listen(PORT, () => {
     console.log(`Backend http://localhost:${PORT} üzerinde çalışıyor`)
   })

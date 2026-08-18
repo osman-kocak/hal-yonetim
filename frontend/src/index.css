@@ -149,7 +149,8 @@
 }
 
 /* PDF'teki gibi 2 sütun: [Fiş No | Tarih] / [Pazar No | Pazar Adı] /
-   [İrsaliye Kasa | Toplam Kasa Bakiyesi] / [Toplam Borç ————] */
+   [İrsaliye Kasa | Toplam Kasa Bakiyesi]
+   Toplam Borç satırı 2026-08-18'de kaldırıldı (saha isteği). */
 .print-info {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -159,10 +160,7 @@
   margin-bottom: 4mm;
 }
 
-/* Borç satırı iki sütunu birden kaplar */
-.print-info-wide { grid-column: 1 / -1; }
-
-/* Bayinin üstünde duran bakiyeler (kasa + borç) kırmızı. print-color-adjust
+/* Bayinin üstünde duran kasa bakiyesi kırmızı. print-color-adjust
    olmadan tarayıcılar "arka plan grafiklerini yazdırma" ayarında rengi atıp
    siyah basıyor — yeşil footer ile aynı sebep. */
 .print-red {
@@ -196,6 +194,13 @@
 
 .print-table .tl { text-align: left; }
 .print-table .tr { text-align: right; }
+
+/* Sıra no sütunu — dar ve ortalanmış. Genişlik PDF'teki 12mm ile aynı
+   (pdfGenerator.js columnStyles), iki çıktı aynı görünsün. */
+.print-table .tc {
+  text-align: center;
+  width: 12mm;
+}
 
 /* Yalnızca son sayfada, footer'ın hemen üstünde.
    break-inside: imza bloğu ile footer ikiye bölünüp yaprak değiştirmesin. */

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/services/api'
-import { useAppStore } from '@/store/appStore'
+import { api, isNetworkError } from '@/services/api'
+import { cacheGet } from '@/lib/offlineDb'
+import { useAppStore, ACTIVE_SESSION_KEY } from '@/store/appStore'
 import { useToastStore } from '@/store/toastStore'
 import { SelectCard } from '@/components/ui/Card'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -25,7 +26,24 @@ export function RegionSelect() {
     try {
       const session = await api.startRegion(region.id)
       startSession(session)
-    } catch {
+    } catch (err) {
+      // Kesintide: sunucudan oturum alınamaz ama AYNI bölgenin daha önce açılmış
+      // oturumu yerelde duruyorsa ona dönülebilir. Bu olmadan kesinti sonrası
+      // sayfa yenilenince operatör mal kabul formuna hiç ulaşamıyordu — offline
+      // kuyruk da boşa çıkıyordu.
+      //
+      // Yeni bölge açmak offline MÜMKÜN DEĞİL: oturum id'si sunucudan geliyor.
+      if (isNetworkError(err)) {
+        const hit = await cacheGet(ACTIVE_SESSION_KEY)
+        const cached = hit?.data
+        if (cached?.id && cached.regionId === region.id) {
+          startSession(cached)
+          addToast('Bağlantı yok — açık bölgeye çevrimdışı devam ediliyor', 'warning')
+          return
+        }
+        addToast('Bağlantı yok — kesintide yalnızca açık bölgeye devam edilebilir', 'error')
+        return
+      }
       addToast('Bölge oturumu başlatılamadı', 'error')
     } finally {
       setStarting(null)

@@ -12,6 +12,14 @@
          iOS `window.print()` çağrısını sessizce yok sayıyor. Ana ekran ikonu
          Safari'de açılsın ki yazdırma çalışsın. MDM Web Clip profilinde de
          FullScreen=false olmalı — meta tek başına yetmez. -->
+    <!-- Manifest'te display:"browser" AYNI SEBEPLE: iOS 16.4+ manifest'in
+         display üyesini okuyor, "standalone" yazsak meta'yı atlatıp tam ekran
+         açar ve yazdırma yine ölür. Bunun bedeli offline tarafta ödeniyor:
+         standalone olmayan kurulumda Safari'nin 7 günlük storage temizliği (ITP)
+         geçerli, yani iPad 7 gün hiç kullanılmazsa kuyruk silinir. Hal her gün
+         çalıştığı için kabul edildi — bkz. lib/offlineDb.js baş yorumu. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#16a34a" />
     <title>Hal Yönetim</title>
   </head>
   <body>

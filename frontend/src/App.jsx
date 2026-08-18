@@ -36,6 +36,7 @@ import { ToastProvider } from '@/components/ui/Toast'
 import { IrsaliyePrintHost } from '@/components/IrsaliyePrint'
 import { OfflineBanner } from '@/components/OfflineBanner'
 import { startConnectionMonitor } from '@/store/connectionStore'
+import { startQueueSync } from '@/lib/syncQueue'
 
 const router = createBrowserRouter([
   // Merkezi giriş sayfası — auth'lu kullanıcı /'a yönlendirilir
@@ -142,8 +143,11 @@ export default function App() {
   }, [])
 
   // Bağlantı izleme: kesinti şeridini besler ve kesinti sürelerini ölçer.
-  // Offline mimarisi kararı (hücresel hat / PWA kuyruk) bu veriye dayanacak.
   useEffect(() => startConnectionMonitor(), [])
+
+  // Offline kuyruk: bekleyen mal kabul kayıtlarını bağlantı gelince gönderir.
+  // Açılışta da çalışır — iPad kapatılıp açıldığında kuyruk devam etsin.
+  useEffect(() => startQueueSync(), [])
 
   return (
     <>
