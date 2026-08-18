@@ -236,6 +236,12 @@ export function EntryForm() {
   }
 
   // Enter = sonraki form alanına geç (Tab gibi). Submit/Button'da default davranış
+  //
+  // CHECKBOX'LAR ZİNCİRDE DEĞİL: kart içindeki "Siyah Kasa" / "B Kalite"
+  // işaretleri de <input> olduğu için odak sırasına giriyor ve operatör miktarı
+  // yazıp Enter'a bastığında sonraki SATIRA değil bu kutulara düşüyordu
+  // (2026-08-18, saha). Enter yalnızca yazı yazılan alanlar arasında dolaşır;
+  // işaretler parmakla tikleniyor.
   function handleFormKeyDown(e) {
     if (e.key !== 'Enter') return
     if (e.target.tagName !== 'INPUT') return
@@ -243,7 +249,7 @@ export function EntryForm() {
     e.preventDefault()
     const form = e.currentTarget
     const focusables = Array.from(
-      form.querySelectorAll('input:not([disabled]), button:not([disabled])')
+      form.querySelectorAll('input:not([disabled]):not([type="checkbox"]), button:not([disabled])')
     )
     const idx = focusables.indexOf(e.target)
     const next = focusables[idx + 1]

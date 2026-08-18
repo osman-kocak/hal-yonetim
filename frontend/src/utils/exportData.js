@@ -60,7 +60,29 @@ export function makeSheetNamer() {
   }
 }
 
-export async function exportToPDF({ title, subtitle, columns, rows, filename }) {
+// Ara toplam satırlarını sarı zeminle işaretler. highlightRow(row) true dönen
+// satırlar vurgulanır — çağıran hangi satırın toplam olduğunu bilir, bu dosya
+// bilmez (bkz. HistoryPage → buildEntrySheets).
+const HIGHLIGHT = {
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFF3C4' } },
+  font: { bold: true },
+}
+
+function paintRows(XLSX, ws, rows, colCount, highlightRow) {
+  if (typeof highlightRow !== 'function') return
+  rows.forEach((row, i) => {
+    if (!highlightRow(row)) return
+    // +1: başlık satırı 0. sırada
+    for (let c = 0; c < colCount; c++) {
+      const addr = XLSX.utils.encode_cell({ r: i + 1, c })
+      // Boş hücrede stil taşınmaz; zemin sürekli görünsün diye hücreyi oluştur
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' }
+      ws[addr].s = HIGHLIGHT
+    }
+  })
+}
+
+export async function exportToPDF({ title, subtitle, columns, rows, filename, highlightRow }) {
   // jsPDF + autotable + arialFont dynamic load — bundle ana chunk'a girmez
   const [{ default: jsPDF }, { default: autoTable }, { ARIAL_B64 }] = await Promise.all([
     import('jspdf'),
@@ -100,6 +122,13 @@ export async function exportToPDF({ title, subtitle, columns, rows, filename }) 
     alternateRowStyles: { fillColor: [248, 250, 252] },
     styles: { fontSize: 8, cellPadding: 2, font: 'Arial' },
     margin: { left: MARGIN, right: MARGIN },
+    // Excel ile aynı satırlar sarı: iki çıktı aynı tabloyu anlatmalı
+    didParseCell: (data) => {
+      if (data.section !== 'body' || typeof highlightRow !== 'function') return
+      if (!highlightRow(rows[data.row.index])) return
+      data.cell.styles.fillColor = [255, 243, 196]
+      data.cell.styles.fontStyle = 'bold'
+    },
   })
 
   const pageCount = doc.getNumberOfPages()
@@ -114,12 +143,17 @@ export async function exportToPDF({ title, subtitle, columns, rows, filename }) 
   doc.save(`${safeName(filename, title)}.pdf`)
 }
 
-export async function exportToXLSX({ title, columns, rows, filename }) {
-  const XLSX = await import('xlsx')
+// NEDEN xlsx-js-style: SheetJS Community Edition hücre stillerini YAZARKEN
+// düşürüyor (cell.s veriliyor, dosyada patternType:"none" kalıyor). Bu fork aynı
+// API'yi sunuyor, tek fark stilin korunması. Dinamik import olduğu için ana
+// bundle'a girmiyor.
+export async function exportToXLSX({ title, columns, rows, filename, highlightRow }) {
+  const XLSX = await import('xlsx-js-style')
 
   const data = [columns, ...rows]
   const ws = XLSX.utils.aoa_to_sheet(data)
   ws['!cols'] = colWidths(columns, rows)
+  paintRows(XLSX, ws, rows, columns.length, highlightRow)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(title, 'Rapor'))
   XLSX.writeFile(wb, `${safeName(filename, title)}.xlsx`)
@@ -128,11 +162,11 @@ export async function exportToXLSX({ title, columns, rows, filename }) {
 // Çok sekmeli XLSX: tek dosya, her grup (bölge / pazar) kendi sekmesinde.
 // Analiz için: tek sekmede 20 pazarı elle filtrelemek yerine sekmeye tıklamak.
 // exportToXLSX'e DOKUNULMADI — diğer 7 çağıran aynı yolda kalıyor.
-export async function exportToXLSXSheets({ sheets, filename, title }) {
+export async function exportToXLSXSheets({ sheets, filename, title, highlightRow }) {
   const usable = (sheets ?? []).filter((s) => s?.rows?.length)
   if (!usable.length) return
 
-  const XLSX = await import('xlsx')
+  const XLSX = await import('xlsx-js-style')
   const wb = XLSX.utils.book_new()
   const nameFor = makeSheetNamer()
 
@@ -140,6 +174,7 @@ export async function exportToXLSXSheets({ sheets, filename, title }) {
     const columns = s.columns ?? []
     const ws = XLSX.utils.aoa_to_sheet([columns, ...s.rows])
     ws['!cols'] = colWidths(columns, s.rows)
+    paintRows(XLSX, ws, s.rows, columns.length, highlightRow)
     // Başlık satırına filtre — sekme başına tek tık kazandırır.
     // ('!freeze' community build'de desteklenmiyor, eklemeyin.)
     ws['!autofilter'] = {

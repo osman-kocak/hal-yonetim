@@ -49,6 +49,9 @@ export function ExportButton({ title, subtitle, filename, prepare, disabled, rol
       const rows = data.rows ?? (sheets ? sheets.flatMap((s) => s.rows ?? []) : null)
       if (!rows?.length) return
       const columns = data.columns ?? sheets?.[0]?.columns
+      // highlightRow: prepare() hangi satırın vurgulanacağını bilir (ör. ara
+      // toplam). ...data ile zaten geçiyor; burada açıkça belirtiliyor ki
+      // sözleşme görünür olsun.
       const args = { title, subtitle, filename, ...data, columns, rows }
       // Export tarayıcıda üretiliyor → tek iz bu ping. resource verildiyse
       // indirmeyi denetim kaydına yaz (kim, ne zaman, kaç satır). Log hatası

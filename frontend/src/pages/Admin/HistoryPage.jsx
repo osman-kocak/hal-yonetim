@@ -179,6 +179,12 @@ function rowsWithSubtotals(entries) {
   return out
 }
 
+// Bir satır ara toplam mı? Export katmanı satırın anlamını bilmiyor; hangi
+// satırın sarı olacağına burası karar veriyor (bkz. utils/exportData.js).
+// İşaret olarak 'Ürün' kolonundaki "TOPLAM · " öneki kullanılıyor — satıra
+// görünmez bir bayrak eklemek export'un kolon sayısını bozardı.
+const isSubtotalRow = (row) => String(row?.[1] ?? '').startsWith('TOPLAM · ')
+
 function buildEntrySheets(all) {
   const buckets = new Map()
   all.forEach((e) => {
@@ -305,7 +311,10 @@ export function HistoryPage() {
               tab === 0 ? api.getExitHistory : api.getEntryHistory,
               exportFilterParams()
             )
-            return tab === 0 ? buildExitSheets(all) : buildEntrySheets(all)
+            if (tab === 0) return buildExitSheets(all)
+            // highlightRow: ara toplam satırları Excel'de sarı zeminli,
+            // PDF'te de aynı renkte basılır (bkz. utils/exportData.js)
+            return { ...buildEntrySheets(all), highlightRow: isSubtotalRow }
           }}
           resource="history"
           disabled={!data.length}

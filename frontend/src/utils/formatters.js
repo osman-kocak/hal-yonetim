@@ -41,6 +41,21 @@ export function formatQty(value, unit) {
   return isCountable(unit) ? `${n} ${unitLabel(unit)}` : `${n.toFixed(2)} kg`
 }
 
+// Kasa muhasebesinin frontend karşılığı — backend utils/cases.js → trackedCases()
+// ile AYNI mantık, ikisi birlikte değişmeli. disposableCase (siyah/karton kasa)
+// hiçbir bakiyeye girmez: kime kaç kasa borçlu olduğumuzu gösteren TOPLAMLAR
+// bunu kullanmalı. Tek bir kaydın "bu satırda kaç kasa vardı" gibi ham/fiziksel
+// gösterimleri buna ihtiyaç duymaz — orada entry.caseCount doğrudan kullanılır.
+export function trackedCases(row) {
+  if (!row) return 0
+  if (row.disposableCase) return 0
+  return row.caseCount ?? 0
+}
+
+export function sumTrackedCases(rows, pick = (r) => r) {
+  return (rows ?? []).reduce((sum, r) => sum + trackedCases(pick(r)), 0)
+}
+
 // Bir listenin üç ayrı miktar toplamı — her ekranda aynı üç kova gerekiyor.
 // Tek yerde, çünkü biri unutulursa o birim sessizce toplamlardan düşer.
 export function sumQty(rows, pick = (r) => r) {

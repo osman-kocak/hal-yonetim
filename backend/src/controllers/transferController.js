@@ -935,8 +935,15 @@ export async function listReturns(req, res, next) {
 
     // Özet TÜM filtrelenmiş küme üzerinden — sayfa üzerinden hesaplanırsa
     // muhasebe ekranındaki tutar/kasa toplamları yanlış olur.
-    const [sums, discardedCount, depoCount] = await Promise.all([
-      prisma.returnRecord.aggregate({ where, _sum: { amount: true, caseCount: true } }),
+    const [sums, trackedSums, discardedCount, depoCount] = await Promise.all([
+      prisma.returnRecord.aggregate({ where, _sum: { amount: true } }),
+      // totalCases MUHASEBE rakamı: siyah/karton kasa hariç (bkz. utils/cases.js
+      // → trackedCases). O kasa bayiye hiç yazılmamıştı (bkz. writeReturnRow),
+      // ham toplam basılırsa "Toplam Kasa" gerçek MARKET_IN hareketinden şişer.
+      prisma.returnRecord.aggregate({
+        where: { ...where, disposableCase: false },
+        _sum: { caseCount: true },
+      }),
       prisma.returnRecord.count({ where: { ...where, discarded: true } }),
       prisma.returnRecord.count({
         where: { ...where, discarded: false, entry: { market: { no: DEPO_NO } } },
@@ -944,7 +951,7 @@ export async function listReturns(req, res, next) {
     ])
     const summary = {
       totalAmount: Math.round((sums._sum.amount ?? 0) * 100) / 100,
-      totalCases: sums._sum.caseCount ?? 0,
+      totalCases: trackedSums._sum.caseCount ?? 0,
       discarded: discardedCount,
       toDepo: depoCount,
       toMarket: total - discardedCount - depoCount,

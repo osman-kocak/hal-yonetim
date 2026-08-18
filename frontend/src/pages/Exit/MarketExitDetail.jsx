@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { MarketAutocomplete } from '@/components/ui/Input'
-import { formatDate, formatWeight, formatQty, isCountable, priceOf, qtyLabel, sumQty, unitLabel, today } from '@/utils/formatters'
+import { formatDate, formatWeight, formatQty, isCountable, priceOf, qtyLabel, sumQty, sumTrackedCases, unitLabel, today } from '@/utils/formatters'
 import { ArrowLeft, FileText, Printer, Check, X, Undo2, ArrowRightLeft, AlertTriangle } from 'lucide-react'
 
 const REFRESH_INTERVAL = 10
@@ -318,7 +318,11 @@ export function MarketExitDetail() {
   }
 
   const selectedEntries = entries.filter((e) => selected.has(e.id))
-  const totalCases = selectedEntries.reduce((s, e) => s + e.caseCount, 0)
+  // "Seçili Kasa" irsaliye kesilince bayinin kasa bakiyesine eklenecek sayı
+  // olmalı — siyah/karton kasa hariç (bkz. utils/cases.js → trackedCases).
+  // Ham toplam basılırsa operatör "40 kasa seçtim" görür, irsaliye kesilince
+  // bakiye 32 artar; ikisi karışınca bayiyle sayışma tutmaz.
+  const totalCases = sumTrackedCases(selectedEntries)
   // Bağ/adet kalemlerinde weight sayı tutuyor — kilo toplamına karışmamalı,
   // bağ ile adet de birbirine eklenmemeli.
   const {
