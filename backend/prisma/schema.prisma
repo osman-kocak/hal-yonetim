@@ -455,3 +455,32 @@ model SyncedBatch {
 
   @@index([createdAt])
 }
+
+// Saha kesinti ölçümü — offline mimarisine yatırım kararının dayanağı.
+//
+// NEDEN TABLO: kesinti süreleri iPad'in localStorage'ında toplanıyordu
+// (`hal_outages`) ve oradan çıkarmanın tek yolu cihazı Mac'e bağlayıp Safari
+// konsolu açmaktı. Saha için pratik değil; veri toplanıyor ama kimse okumuyordu.
+// Artık bağlantı gelince sunucuya gönderiliyor ve admin panelinden görülüyor.
+//
+// deviceId: hangi iPad. Sunucu üretemez (kesinti sırasında sunucu yok), istemci
+// bir kez uuid üretip localStorage'da saklıyor.
+//
+// @@unique([deviceId, startedAt]): aynı kesinti iki kez gönderilmesin. Gönderim
+// başarılı olduğu halde yanıtı kaybolursa istemci tekrar dener — SyncedBatch ile
+// aynı mantık, burada doğal anahtar yeterli.
+model OutageReport {
+  id        Int      @id @default(autoincrement())
+  deviceId  String
+  // Kesinti anındaki kullanıcı. Hesap silinse de iz kalsın diye kopyalanıyor.
+  username  String?
+  startedAt DateTime
+  endedAt   DateTime
+  // Süre (ms) — istemci hesaplıyor; startedAt/endedAt farkıyla aynı olmalı ama
+  // saat oynamalarına karşı ölçülen değer de saklanıyor.
+  ms        Int
+  createdAt DateTime @default(now())
+
+  @@unique([deviceId, startedAt])
+  @@index([startedAt])
+}

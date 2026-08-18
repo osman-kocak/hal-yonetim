@@ -249,6 +249,10 @@ export const api = {
   updateUser: (id, data) => unwrap(http.put(`/admin/users/${id}`, data)),
   deleteUser: (id) => unwrap(http.delete(`/admin/users/${id}`)),
 
+  // Kesinti ölçümü — cihaz bağlantı gelince biriken kaydı yollar (Faz 0).
+  reportOutages: (data) => unwrap(http.post('/outages', data)),
+  getOutages: (params) => unwrap(http.get('/admin/outages', { params })),
+
   // Public prices (operatör paneli için)
   getPublicPrices: (date) => unwrap(http.get('/prices', { params: { date } })),
 

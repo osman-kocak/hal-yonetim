@@ -8,7 +8,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { MarketAutocomplete } from '@/components/ui/Input'
-import { formatDate, formatWeight, formatQty, isCountable, priceLabel, unitLabel, today } from '@/utils/formatters'
+import { formatDate, formatWeight, formatQty, isCountable, priceLabel, sumTrackedCases, unitLabel, today } from '@/utils/formatters'
 import { printIrsaliye, openIrsaliyePdf } from '@/store/printStore'
 import { cn } from '@/utils/cn'
 import { AlertTriangle, ChevronDown, ChevronRight, FileText, Pencil, Printer, Trash2 } from 'lucide-react'
@@ -132,7 +132,12 @@ const subtotalKey = (e) => `${e.producer?.id ?? 'yok'}|${e.product?.id ?? 'yok'}
 function subtotalRow(items) {
   const first = items[0]
   const countable = isCountable(first.unit)
-  const totalCases = items.reduce((s, e) => s + (e.caseCount ?? 0), 0)
+  // Kasa toplamı MUHASEBE rakamı: siyah/karton kasa hiçbir bakiyeye girmiyor
+  // (bkz. utils/formatters.js → trackedCases, backend utils/cases.js ile aynı).
+  // Satır bazlı "Kasa" kolonu ham kalıyor — o, kaydın fiziksel kasa sayısı;
+  // hangi satırın siyah olduğu "Siyah/Karton Kasa" kolonunda zaten yazıyor.
+  const totalCases = sumTrackedCases(items)
+  const siyahKasa = items.reduce((s, e) => s + (e.disposableCase ? (e.caseCount ?? 0) : 0), 0)
   const totalQty = items.reduce((s, e) => s + Number(e.weight ?? 0), 0)
   return [
     '',
@@ -142,7 +147,7 @@ function subtotalRow(items) {
     totalCases,
     totalQty.toFixed(countable ? 0 : 2),
     unitLabel(first.unit),
-    `${items.length} kayıt`,
+    siyahKasa > 0 ? `${items.length} kayıt · ${siyahKasa} siyah kasa hariç` : `${items.length} kayıt`,
     '', '', '', '', '', '',
   ]
 }

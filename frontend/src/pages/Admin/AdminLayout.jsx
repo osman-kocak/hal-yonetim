@@ -3,7 +3,7 @@ import { useAuthStore } from '@/store/authStore'
 import { hasAnyRole } from '@/utils/roles'
 import { cn } from '@/utils/cn'
 import {
-  LayoutDashboard, MapPin, Package, Store, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert, ArrowLeft, Warehouse
+  LayoutDashboard, MapPin, Package, Store, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert, ArrowLeft, Warehouse, WifiOff
 } from 'lucide-react'
 
 const nav = [
@@ -19,6 +19,9 @@ const nav = [
   { to: '/admin/raporlar', label: 'Raporlar', icon: BarChart2 },
   { to: '/admin/kullanicilar', label: 'Kullanıcılar', icon: UserCog, adminOnly: true },
   { to: '/admin/erisim-kayitlari', label: 'Erişim Kayıtları', icon: ShieldAlert, adminOnly: true },
+  // Saha kesinti ölçümü (Faz 0) — offline yatırım kararının dayanağı.
+  // ACCOUNTING de görebilir: kesinti süresi operasyonel bir maliyet.
+  { to: '/admin/kesintiler', label: 'Kesintiler', icon: WifiOff },
   { to: '/admin/bolgeler', label: 'Bölgeler', icon: MapPin },
   { to: '/admin/ureticiler', label: 'Üreticiler', icon: User },
   { to: '/admin/urunler', label: 'Ürünler', icon: Package },

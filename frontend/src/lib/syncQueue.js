@@ -21,6 +21,7 @@ import {
   queueAdd, queueAll, queueNextPending, queueUpdate, queueDelete, queueCounts,
 } from '@/lib/offlineDb'
 import { useQueueStore } from '@/store/queueStore'
+import { useConnectionStore } from '@/store/connectionStore'
 
 // kind → gönderim fonksiyonu. Kuyruğa yalnızca burada tanımlı işler girebilir.
 // Faz 1 kapsamı: mal kabul batch'i. Bölge oturumu açma/kapama BİLİNÇLİ olarak
@@ -66,11 +67,23 @@ function classify(err) {
   return 'RETRY'
 }
 
+// Kesinti ölçümünü sunucuya taşı. Kuyruk gönderimiyle AYNI tetikleyiciye
+// bağlanıyor: ikisi de "bağlantı geri geldi" anında anlamlı. Hata yutuluyor —
+// ölçüm verisi kritik değil, mal kabul kuyruğunu bloke etmemeli.
+async function flushOutages() {
+  try {
+    await useConnectionStore.getState().flushOutages((data) => http.post('/outages', data))
+  } catch {
+    // sonraki turda yeniden denenir
+  }
+}
+
 export async function flush() {
   if (flushing) return
   if (document.hidden) return // arka planda pil harcamayalım, dönünce zaten tetiklenir
   flushing = true
   try {
+    flushOutages()
     for (;;) {
       const item = await queueNextPending()
       if (!item) break

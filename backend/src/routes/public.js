@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { prisma } from '../utils/prismaClient.js'
 import { getPublicPrices } from '../controllers/priceController.js'
+import { reportOutages } from '../controllers/outageController.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 const router = Router()
@@ -10,6 +11,11 @@ const router = Router()
 // tablosu ticari sır; geçmiş tarih sorgusu ayrıca controller'da ADMIN'e kısıtlı.
 router.use(requireAuth)
 router.use(requireRole('OPERATOR', 'DEPO', 'ACCOUNTING', 'ADMIN'))
+
+// Kesinti bildirimi: cihaz bağlantı gelince biriken ölçümü yollar. CASE_MANAGER
+// dahil her saha rolü kendi kesintisini bildirebilmeli — ama bu router zaten
+// OPERATOR/DEPO/ACCOUNTING/ADMIN ile sınırlı, kasacı ekranı offline akışta yok.
+router.post('/outages', reportOutages)
 
 router.get('/regions', async (req, res, next) => {
   try {

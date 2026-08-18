@@ -23,6 +23,7 @@ import { UsersPage } from '@/pages/Admin/UsersPage'
 import { ReturnsPage } from '@/pages/Admin/ReturnsPage'
 import { FirePage } from '@/pages/Admin/FirePage'
 import { AuditPage } from '@/pages/Admin/AuditPage'
+import { OutagesPage } from '@/pages/Admin/OutagesPage'
 import { ReturnPage } from '@/pages/Return/ReturnPage'
 import { DepoLayout } from '@/pages/Depo/DepoLayout'
 import { DepoTransferPage } from '@/pages/Depo/DepoTransferPage'
@@ -119,6 +120,7 @@ const router = createBrowserRouter([
       { path: 'fire', element: <FirePage /> },
       { path: 'kullanicilar', element: <UsersPage /> },
       { path: 'erisim-kayitlari', element: <AuditPage /> },
+      { path: 'kesintiler', element: <OutagesPage /> },
       { path: 'bolgeler', element: <RegionsPage /> },
       { path: 'ureticiler', element: <ProducersPage /> },
       { path: 'urunler', element: <ProductsPage /> },

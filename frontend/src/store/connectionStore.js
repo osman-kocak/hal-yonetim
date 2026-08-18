@@ -10,9 +10,29 @@ import { create } from 'zustand'
 // desteklenmiyor). Ölçüm de senkron da yalnızca sayfa ön plandayken ilerler.
 
 const OUTAGE_KEY = 'hal_outages'
+// Hangi iPad. Sunucu üretemez — kesinti anında sunucuya zaten ulaşılamıyor.
+// Cihaz başına bir kez üretilip saklanıyor; uygulama silinip yeniden
+// kurulursa yeni kimlik alır, bu kabul edilebilir.
+const DEVICE_KEY = 'hal_device_id'
 const MAX_OUTAGES = 100          // localStorage şişmesin
 const MIN_OUTAGE_MS = 5000       // 5 sn altı takılmalar kesinti sayılmaz
 const PING_INTERVAL_MS = 30_000
+
+export function deviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY)
+    if (!id) {
+      id = globalThis.crypto?.randomUUID
+        ? crypto.randomUUID()
+        : `dev-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+      localStorage.setItem(DEVICE_KEY, id)
+    }
+    return id
+  } catch {
+    // private mode: kalıcı kimlik yok, oturumluk üret — ölçüm yine de gelsin
+    return 'gecici'
+  }
+}
 
 function loadOutages() {
   try {
@@ -62,6 +82,28 @@ export const useConnectionStore = create((set, get) => ({
   clearOutages() {
     saveOutages([])
     set({ outages: [] })
+  },
+
+  // Biriken kesintileri sunucuya gönder ve yerelden düş.
+  //
+  // NEDEN GÖNDERİYORUZ: ölçüm aylardır localStorage'da birikiyordu ve okumak
+  // için iPad'i Mac'e bağlayıp Safari konsolu açmak gerekiyordu — pratikte
+  // kimse okumadı. Faz 2/3 kararı bu veriye dayanacak.
+  //
+  // Sunucu tarafında (deviceId, startedAt) UNIQUE: tekrar gönderim zararsız.
+  // Bu yüzden "gönderildi" durumunu yerelde saklamıyoruz — kesintide sekme
+  // ölebilir ve o işaret güvenilmez olurdu.
+  async flushOutages(post) {
+    const { outages } = get()
+    if (!outages.length) return 0
+    const gonderilen = outages.length
+    await post({ deviceId: deviceId(), outages })
+    // Yalnızca gönderdiklerimizi düş: gönderim sürerken yeni kesinti eklenmiş
+    // olabilir, onu silmek ölçümü kaybetmek olur.
+    const kalan = get().outages.slice(gonderilen)
+    saveOutages(kalan)
+    set({ outages: kalan })
+    return gonderilen
   },
 }))
 

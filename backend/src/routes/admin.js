@@ -22,6 +22,7 @@ import {
 import { dailyReport, byMarketReport, byProductReport, topProducts, fireReport } from '../controllers/reportController.js'
 import { getPrices, upsertPrice } from '../controllers/priceController.js'
 import { logExport, listAuditLogs } from '../controllers/auditController.js'
+import { listOutages } from '../controllers/outageController.js'
 import { getExitHistory, getEntryHistory } from '../controllers/historyController.js'
 import { updateExit, deleteExit } from '../controllers/exitController.js'
 import {
@@ -146,5 +147,9 @@ router.get('/reports/fire', fireReport)
 // Denetim (audit) — export niyeti kaydı ADMIN+ACCOUNTING; kayıtları görme ADMIN'e özel
 router.post('/audit/export', logExport)
 router.get('/audit', requireRole('ADMIN'), listAuditLogs)
+
+// Saha kesinti ölçümü — offline yatırım kararının dayanağı (Faz 0).
+// ACCOUNTING de görebilir: kesinti süresi operasyonel bir maliyet.
+router.get('/outages', listOutages)
 
 export default router
