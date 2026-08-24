@@ -20,6 +20,36 @@ const REFRESH_INTERVAL = 10
 // düşmesin, ama ekran gerçekten kapandıysa pazar uzun süre bekletilmesin.
 const LOCK_HEARTBEAT_MS = 30_000
 
+// Yarım kalmış seçim iPad'de saklanır: operatör kalemleri tikleyip irsaliye
+// kesmeden çıkarsa (yanlışlıkla geri, uygulama arkaya atılıp öldürülünce)
+// dönüşte baştan tiklemesin. Gün bazlı — ertesi gün açılan ekran temiz gelir,
+// dün kalmış tikle yanlış irsaliye kesilmesin.
+const SELECTION_KEY = (marketId) => `hal_exit_selection_${marketId}`
+
+function loadSelection(marketId) {
+  try {
+    const raw = localStorage.getItem(SELECTION_KEY(marketId))
+    if (!raw) return new Set()
+    const saved = JSON.parse(raw)
+    if (saved?.date !== today()) {
+      localStorage.removeItem(SELECTION_KEY(marketId))
+      return new Set()
+    }
+    return new Set(Array.isArray(saved.ids) ? saved.ids : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveSelection(marketId, ids) {
+  try {
+    if (!ids.size) localStorage.removeItem(SELECTION_KEY(marketId))
+    else localStorage.setItem(SELECTION_KEY(marketId), JSON.stringify({ date: today(), ids: [...ids] }))
+  } catch {
+    // Kota dolu / özel mod: seçim kalıcı olmaz, ekran çalışmaya devam etsin.
+  }
+}
+
 export function MarketExitDetail() {
   const { marketId } = useParams()
   const navigate = useNavigate()
@@ -37,7 +67,7 @@ export function MarketExitDetail() {
   const [moveTarget, setMoveTarget] = useState(null) // aktarılacak entry
   const [priceMap, setPriceMap] = useState({})
   const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState(new Set())
+  const [selected, setSelected] = useState(() => loadSelection(marketId))
   const [submitting, setSubmitting] = useState(false)
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL)
   // Ekran kilidi. null = henüz denenmedi, { ok } = bizde, { lockedBy } = başkasında.
@@ -85,6 +115,12 @@ export function MarketExitDetail() {
     fetchEntries(true)
     api.getPublicPrices(today()).then(setPriceMap).catch(() => {})
   }, [marketId])
+
+  // Her seçim değişiminde yaz. Ayrı efekt: toggle/toggleAll/handleRemove ve
+  // fetchEntries'in ayıklaması dahil TÜM yolları tek yerden yakalar.
+  useEffect(() => {
+    saveSelection(marketId, selected)
+  }, [marketId, selected])
 
   // Ekran kilidi: açılışta al, açık kaldıkça yenile, çıkarken bırak.
   //
@@ -223,6 +259,9 @@ export function MarketExitDetail() {
       const exit = await api.createExit(Number(marketId), [...selected])
       // Burada printIrsaliye() ÇAĞIRMA: iOS Safari await sonrası window.print()'i
       // yok sayar. Kullanıcı sonuç ekranındaki Yazdır'a basmalı (bkz. printStore).
+      // Bu kalemler artık irsaliyede — saklanan seçim de gitmeli, yoksa aynı
+      // pazara tekrar girildiğinde ölü id'ler tiklenmiş görünür.
+      setSelected(new Set())
       setCreatedExit(exit)
       addToast('İrsaliye oluşturuldu ✓')
     } catch (err) {
