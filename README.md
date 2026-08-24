@@ -417,6 +417,38 @@ npm run db:set-piece -- --apply   # uygula
 `CASE → PIECE` değildir — script kilo biriminden gelen ürünlerde fiyat/tutar
 kaydı varsa durur.
 
+### Canlıya geçiş sıfırlaması (tek seferlik)
+
+Deneme sürecinde birikmiş veriyi temizler; ürün, pazar, üretici, bölge, kullanıcı
+ve kalite tanımlarına dokunmaz. Hareket verisi + fiyatlar silinir, ID sayaçları
+1'e döner — **irsaliye numarası #1'den başlar.**
+
+```bash
+node scripts/reset-for-production.js                              # kuru çalışma
+RESET_CONFIRM=SIFIRLA node scripts/reset-for-production.js --yes  # uygular
+```
+
+Çift kilit bilinçli: script her deploy'da canlıya gidiyor, `--yes` tek başına
+geçmişten yanlışlıkla çağrılabilecek kadar kolay. **Öncesinde `pg_dump` şart** —
+`TRUNCATE` geri alınamaz, tek dönüş yolu yedektir.
+
+Sıfırlama devir bırakmaz. Depoda duran mal ve şoförlerin üzerindeki boş kasa
+fiziksel gerçek olduğu için ayrıca açılış kaydı olarak girilir:
+
+```bash
+node scripts/import-sayim-20260822.js         # kuru çalışma
+node scripts/import-sayim-20260822.js --yes   # uygular
+```
+
+Idempotent — yazılmış kalemi ürün+kasa+miktar eşleşmesiyle tanıyıp atlar, sayım
+sonradan düzeltilirse aynı script yeniden çalıştırılabilir. Mal `DEPO` pazarına
+oturumsuz girer (`createdBy` = sayım tarihi), boş kasa bölgelere `REGION_OUT`
+olarak yazılır.
+
+> Sayım listesi Excel'den geliyorsa ürün adları elle yazıldığı için birebir
+> tutmayabilir. Eşleştirmede `toLocaleUpperCase('tr-TR')` kullanılmalı: düz
+> `toUpperCase()` Türkçe İ/ı'yı bozar ve "SARIMSAK" ile "Sarmısak" eşleşmez.
+
 ---
 
 ## 🧪 Manuel Test Checklist
