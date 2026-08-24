@@ -275,9 +275,15 @@ Kilo **zorunlu** (`requestedWeight`). Depodaki kilo mal kabuldeki değerdir; mal
 beklerken fire verdiği için sevkiyatta tartılan değer esas alınır — irsaliye
 tutarı bunun üzerinden hesaplanır. Kurallar:
 
-- Tartı, o kasa adedine düşen kayıtlı kilodan **fazla olamaz** (400) — depoda
-  karşılığı olmayan kilo yaratmamak için. Mal beklerken ağırlaşmaz.
-- Aradaki fark = fire; `Transfer.note`'a `Tartı farkı: -X kg` olarak yazılır.
+- Tartı, kayıtlı kilodan **fazla olabilir** (13 Ağu 2026 kararı). Eskiden kesin
+  reddediliyordu ve sahada işi tıkıyordu: mal kabulde kilo eksik girilmiş oluyor,
+  tartı 450 diyor ama depo kaydı 423.86 gösteriyor, sevkiyat hiç yapılamıyordu.
+  Stok açısından güvenli — depoda **kalan** kısım operatörün yazdığı tartıdan
+  değil, kayıtlı oransal paydan hesaplanıyor, yani kalan asla eksiye düşmüyor.
+  Tek koruma yazım hatasına karşı: kayıtlı kilonun 3 katını (veya +100 kg'ı)
+  aşan değer 400 ile döner — 450 yerine 4500 yazılması faturaya gitmesin diye.
+- Aradaki fark `Transfer.note`'a yazılır: eksikse `Tartı farkı: -X kg` (fire),
+  fazlaysa `Tartı fazlası: +X kg`. İkisi de yazılır, yoksa fark sessizce kaybolur.
 - Kısmî tüketilen Entry depoda kendi oransal payını korur, fark giden mala yazılır.
 - **Parti seçimi** (`entryIds`, opsiyonel): grup satırındaki Transfer tüm partileri
   FIFO ile tarar; satır genişletilip **"Bu partiden"** denirse havuz o girişe iner.
@@ -285,8 +291,10 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
   eskisini yiyor, depocu "yeni malı gönderdim" sanıyordu — fiziksel miktar doğru
   çıkıyor ama depoda kalan malın kimliği yanlış oluyordu. Seçilen id başka bir
   gruba (zayıf/siyah/birim) aitse eşleşmez ve reddedilir.
-- Kasa yazılınca kilo alanı depo ortalamasından ön-doldurulur; kullanıcı tartıdaki
-  değeri üstüne yazar.
+- Kilo alanı **otomatik dolmaz** (13 Ağu 2026 kararı). Eskiden kasa yazılınca depo
+  ortalamasından ön-doldurulurdu; depocu tartıya bakmadan gönderiyor, tahmini
+  değer gerçekmiş gibi kaydediliyordu. Kilo her zaman elle giriliyor, o satır için
+  backend'in izin verdiği tavan input'un altında yazıyor.
 
 ---
 
