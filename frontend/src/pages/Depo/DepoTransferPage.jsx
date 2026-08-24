@@ -300,7 +300,21 @@ export function DepoTransferPage() {
                               </Badge>
                             )}
                           </td>
-                          <td></td>
+                          {/* Parti bazlı transfer. Grup satırındaki buton FIFO ile
+                              tüm partileri tarar (varsayılan, eski davranış); depocu
+                              belirli bir partiyi göndermek istiyorsa buradan seçer. */}
+                          <td className="p-2 text-right">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setTransferTarget(singleEntryGroup(g, e))}
+                              className="inline-flex items-center gap-1 ml-auto text-[10px] sm:text-xs px-2 py-1"
+                              title="Sadece bu partiden transfer et"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span className="hidden sm:inline">Bu partiden</span>
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                     </Fragment>
@@ -340,6 +354,20 @@ function makeSlot() {
 }
 
 const round2 = (n) => Math.round(n * 100) / 100
+
+// Tek partilik sanal grup. Modal grup nesnesiyle çalışıyor; parti seçimi de aynı
+// şekli taşırsa modalda hiçbir dallanma gerekmiyor, sadece havuz bir girişe iner.
+// entryIds alanı hem backend'e gider hem "bu tek parti transferi" işareti olur.
+function singleEntryGroup(group, entry) {
+  return {
+    ...group,
+    entries: [entry],
+    totalCases: entry.caseCount ?? 0,
+    totalWeight: entry.weight ?? 0,
+    firstDate: entry.createdAt,
+    entryIds: [entry.id],
+  }
+}
 
 // Backend FIFO'sunun birebir aynası (transferController.createGroupedTransfer).
 //
@@ -523,6 +551,9 @@ function TransferModal({ group, markets, onClose, onDone }) {
           // yoksa karışık havuzdan çeker.
           disposableCase: group.disposableCase,
           unit: group.unit,
+          // Parti seçildiyse FIFO yalnız o girişin içinde çalışır. Yoksa alan hiç
+          // gitmez ve backend eski davranışta kalır (grubun tamamı, en eskiden).
+          ...(group.entryIds ? { entryIds: group.entryIds } : {}),
         })
         totalAffected += result?.entriesAffected ?? 1
         totalShrink += result?.shrink ?? 0
@@ -564,9 +595,19 @@ function TransferModal({ group, markets, onClose, onDone }) {
                 ? `${group.totalCases} kasa · ${formatQty(group.totalWeight, unit)}`
                 : `${group.totalCases} kasa · ${formatWeight(group.totalWeight)}`}
             </p>
-            <p className="text-xs text-text-muted mt-1">
-              {group.entries.length} farklı giriş (en eski: {formatDate(group.firstDate)})
-            </p>
+            {/* Parti seçilmişse hangi giriş olduğu yazılmalı: modal başlığı grup
+                başlığıyla aynı olduğu için depocu yanlış yerden gönderdiğini
+                ancak burada fark eder. */}
+            {group.entryIds ? (
+              <p className="text-xs text-primary font-medium mt-1">
+                Tek parti · {formatDate(group.firstDate)}
+                {group.entries[0]?.producer?.name ? ` · ${group.entries[0].producer.name}` : ''}
+              </p>
+            ) : (
+              <p className="text-xs text-text-muted mt-1">
+                {group.entries.length} farklı giriş (en eski: {formatDate(group.firstDate)})
+              </p>
+            )}
             {group.weak && (
               <Badge variant="error" className="mt-2 inline-flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Sadece zayıf mallar transfer edilecek

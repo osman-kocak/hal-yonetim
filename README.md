@@ -263,6 +263,7 @@ DepoTransferPage → Ürün grubu seç → Hedef pazar + kasa + tartılan kilo
         │
         ▼
 FIFO: en eski Entry'lerden başlanır, gerekirse split yapılır
+        │   (parti seçildiyse FIFO yalnız o Entry'lerin içinde çalışır)
         │
         ▼
 Girilen kilo, kapsanan Entry'lerin kilo payları oranında dağıtılır
@@ -278,6 +279,12 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
   karşılığı olmayan kilo yaratmamak için. Mal beklerken ağırlaşmaz.
 - Aradaki fark = fire; `Transfer.note`'a `Tartı farkı: -X kg` olarak yazılır.
 - Kısmî tüketilen Entry depoda kendi oransal payını korur, fark giden mala yazılır.
+- **Parti seçimi** (`entryIds`, opsiyonel): grup satırındaki Transfer tüm partileri
+  FIFO ile tarar; satır genişletilip **"Bu partiden"** denirse havuz o girişe iner.
+  Aynı gruptan iki parti dururken (açılış sayımı + aynı gün gelen yeni mal) FIFO
+  eskisini yiyor, depocu "yeni malı gönderdim" sanıyordu — fiziksel miktar doğru
+  çıkıyor ama depoda kalan malın kimliği yanlış oluyordu. Seçilen id başka bir
+  gruba (zayıf/siyah/birim) aitse eşleşmez ve reddedilir.
 - Kasa yazılınca kilo alanı depo ortalamasından ön-doldurulur; kullanıcı tartıdaki
   değeri üstüne yazar.
 

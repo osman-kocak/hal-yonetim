@@ -272,9 +272,26 @@ export async function createGroupedTransfer(req, res, next) {
   try {
     const {
       productId, requestedCases, requestedWeight, toMarketId, note, weak, disposableCase, unit,
+      entryIds,
     } = req.body
     if (!productId || !toMarketId || !requestedCases) {
       return res.status(400).json({ error: 'Ürün, hedef pazar ve kasa adedi zorunlu' })
+    }
+
+    // PARTİ SEÇİMİ (opsiyonel). Verilmezse davranış eskisi gibi: grubun tamamı
+    // FIFO ile taranır. Verilirse FIFO yalnız bu girişlerin içinde çalışır.
+    //
+    // NEDEN: depoda aynı gruptan birden fazla parti durabiliyor (açılış sayımı +
+    // aynı gün gelen yeni mal gibi). FIFO en eskiyi önce tükettiği için depocu
+    // "yeni aldığım malı gönderdim" derken sayım partisi gidiyordu. Fiziksel
+    // miktar doğru çıkıyor ama depoda kalan malın kimliği yanlış oluyor.
+    let pickedIds = null
+    if (entryIds != null) {
+      const ids = Array.isArray(entryIds) ? entryIds.map(Number) : []
+      if (!ids.length || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+        return res.status(400).json({ error: 'Parti seçimi geçersiz' })
+      }
+      pickedIds = ids
     }
 
     // Birim istemciden gelir: depo grubu Entry.unit SNAPSHOT'ını taşır. Ürünün
@@ -335,6 +352,14 @@ export async function createGroupedTransfer(req, res, next) {
     // Birim de filtreye girer: cutover sonrası aynı ürünün eski kasa girişleri
     // depoda durabilir, iki eksen tek FIFO'da toplanamaz.
     where.unit = entryUnit
+    // Parti seçildiyse havuz daraltılır. Diğer filtreler yerinde kalır: seçilen
+    // id başka bir gruba (zayıf/siyah/birim) aitse hiç eşleşmez ve "yeterli mal
+    // yok" hatası döner — yanlış gruptan sessizce çekmektense reddetmek doğru.
+    if (pickedIds) where.id = { in: pickedIds }
+
+    // Hata metni kapsamı söylesin: "Depoda sadece 1 kasa var" mesajı, depoda 28
+    // kasa dururken seçilen partide 1 kasa varsa kafa karıştırıyor.
+    const scope = pickedIds ? 'Seçilen partide' : 'Depoda'
 
     // MODUN TEK TANIMI: miktar hangi kolonda duruyor.
     const qtyOf = countable ? (e) => e.weight : (e) => e.caseCount
@@ -347,7 +372,7 @@ export async function createGroupedTransfer(req, res, next) {
 
     const available = candidates.reduce((s, e) => s + qtyOf(e), 0)
     if (totalRequested > available) {
-      return res.status(400).json({ error: `Depoda sadece ${available} ${label} var, ${totalRequested} talep edildi` })
+      return res.status(400).json({ error: `${scope} sadece ${available} ${label} var, ${totalRequested} talep edildi` })
     }
 
     const createdBy = req.user?.name || req.user?.username || 'Depo'
@@ -363,7 +388,7 @@ export async function createGroupedTransfer(req, res, next) {
       })
       const availableNow = freshCandidates.reduce((s, e) => s + qtyOf(e), 0)
       if (totalRequested > availableNow) {
-        throw httpError(409, `Depoda sadece ${availableNow} ${label} kaldı, ${totalRequested} talep edildi`)
+        throw httpError(409, `${scope} sadece ${availableNow} ${label} kaldı, ${totalRequested} talep edildi`)
       }
 
       // Önce FIFO planı çıkarılır: hangi entry'den ne kadar. Kasa modunda kilo bu
