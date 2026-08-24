@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, errorMessage, isNetworkError } from '@/services/api'
 import { enqueue } from '@/lib/syncQueue'
@@ -47,6 +47,10 @@ export function ReturnPage() {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [tekrarOnay, setTekrarOnay] = useState(false)
+  // Buton loading'de kilitleniyor ama setSaving asenkron: iki tıklama arası
+  // re-render'dan kısaysa ikincisi de geçer. Ref senkron kapanır.
+  const gonderiliyor = useRef(false)
 
   // Bayiye son 7 günde ne gönderildi / ne iade alındı. Yanlış ürün ya da yanlış
   // bayi seçimini yakalamak için: canlıda 17 iadenin 6'sı bayiye hiç
@@ -100,11 +104,15 @@ export function ReturnPage() {
       return next
     })
     setError('')
+    // Satır değişti — tekrar onayı düşer. Onaylayıp sonra satır ekleyen
+    // kullanıcı eski onayla göndermesin.
+    setTekrarOnay(false)
   }
 
   function removeSlot(idx) {
     setSlots((prev) => (prev.length === 1 ? [makeSlot()] : prev.filter((_, i) => i !== idx)))
     setError('')
+    setTekrarOnay(false)
   }
 
   const readySlots = slots.filter(slotReady)
@@ -126,6 +134,33 @@ export function ReturnPage() {
       return null
     })
     .filter(Boolean)
+
+  // AYNI ÜRÜN BİRDEN FAZLA SATIRDA (24 Ağu 2026).
+  //
+  // Form son satır dolunca altına yenisini açıyor. Operatör ilk satırı yanlış
+  // doldurup (hedefi karıştırıp) doğrusunu alttaki satıra yazınca, eskisini
+  // silmeyi unutabiliyor — iki satır da kaydediliyor. O gün böyle oldu: aynı
+  // 14 kasa karpuz iki kez işlendi, bayinin cari hesabına 8.800 yerine 17.600
+  // alacak, kasa hesabına 14 yerine 28 kasa geçti.
+  //
+  // Engellemiyoruz, onay istiyoruz: aynı üründen iki ayrı iade meşru olabilir
+  // (farklı fiyat, biri imha biri depo). Ama toplam görülerek onaylansın.
+  const tekrarlar = (() => {
+    const sayac = new Map()
+    for (const s of readySlots) {
+      const cur = sayac.get(s.productId) ?? { adet: 0, kasa: 0, miktar: 0 }
+      cur.adet += 1
+      cur.kasa += Number(s.caseCount) || 0
+      cur.miktar += Number(s.weight) || 0
+      sayac.set(s.productId, cur)
+    }
+    return [...sayac.entries()]
+      .filter(([, v]) => v.adet > 1)
+      .map(([pid, v]) => {
+        const ad = products.find((p) => String(p.id) === String(pid))?.name ?? '?'
+        return `${ad}: ${v.adet} satır · toplam ${v.kasa} kasa / ${v.miktar} ${unitLabel(unitOf(pid))}`
+      })
+  })()
 
   const loadRecent = useCallback(async () => {
     setRefreshing(true)
@@ -154,12 +189,20 @@ export function ReturnPage() {
     setNote('')
     setError('')
     setBalance(null)
+    setTekrarOnay(false)
   }
 
   async function handleSave() {
+    // Senkron kilit: buton disabled'a düşmeden gelen ikinci tıklamayı burada
+    // kesiyoruz. Cari hesaba yazan bir işlem — "muhtemelen yetişmez" yetmez.
+    if (gonderiliyor.current) return
     setError('')
     if (!fromMarketId) { setError('İade veren bayi seçilmeli'); return }
     if (!readySlots.length) { setError('En az bir iade satırı doldurun'); return }
+    if (tekrarlar.length && !tekrarOnay) {
+      setError('Aynı ürün birden fazla satırda — toplamı kontrol edip onaylayın')
+      return
+    }
 
     // Yarım kalmış satır varsa uyar — sessizce atlanırsa mal kaydedilmemiş olur
     const yarim = slots.findIndex((s) => slotTouched(s) && !slotReady(s))
@@ -168,6 +211,7 @@ export function ReturnPage() {
       return
     }
 
+    gonderiliyor.current = true
     setSaving(true)
     try {
       // TEK istek, TEK transaction: satırlardan biri patlarsa hiçbiri yazılmaz.
@@ -232,6 +276,7 @@ export function ReturnPage() {
     } catch (err) {
       setError(errorMessage(err, 'İade kaydı başarısız'))
     } finally {
+      gonderiliyor.current = false
       setSaving(false)
     }
   }
@@ -366,6 +411,30 @@ export function ReturnPage() {
                 </div>
               )}
 
+              {/* Tekrar uyarısı şüpheli listesinden AYRI ve daha sert: orada
+                  bilgi veriliyor, burada onay isteniyor. Aynı malı iki kez
+                  işlemek cari hesabı ve kasayı ikiye katlıyor. */}
+              {tekrarlar.length > 0 && (
+                <div className="bg-error/10 border border-error/40 rounded-xl p-3 flex gap-2 items-start">
+                  <AlertTriangle className="w-4 h-4 text-error shrink-0 mt-0.5" />
+                  <div className="text-sm text-error">
+                    <p className="font-semibold">Aynı ürün birden fazla satırda:</p>
+                    <ul className="list-disc list-inside mt-1 space-y-0.5">
+                      {tekrarlar.map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                    <label className="flex items-center gap-2 mt-2 font-medium cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={tekrarOnay}
+                        onChange={(e) => setTekrarOnay(e.target.checked)}
+                        className="w-4 h-4 accent-error"
+                      />
+                      Toplamı kontrol ettim, doğru
+                    </label>
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <div className="bg-error/10 border border-error/40 rounded-xl p-3 flex gap-2 items-start">
                   <AlertTriangle className="w-4 h-4 text-error shrink-0 mt-0.5" />
@@ -382,7 +451,7 @@ export function ReturnPage() {
                   loading={saving}
                   size="lg"
                   className="flex-1"
-                  disabled={!readySlots.length}
+                  disabled={!readySlots.length || (tekrarlar.length > 0 && !tekrarOnay)}
                 >
                   {readySlots.length > 1 ? `${readySlots.length} İadeyi Kaydet` : 'İadeyi Kaydet'}
                 </Button>

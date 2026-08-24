@@ -1066,11 +1066,17 @@ export async function deleteReturn(req, res, next) {
         error: 'Bu iadenin ürünü irsaliye edilmiş — önce o irsaliyeyi silin',
       })
     }
-    if (ret.entry?.transfers?.length > 0) {
-      return res.status(409).json({
-        error: 'Bu iadenin ürünü başka bir pazara transfer edilmiş — önce o transferi geri alın',
-      })
-    }
+    // TRANSFER ENGEL DEĞİL, birlikte silinir (24 Ağu 2026).
+    //
+    // Eskiden transferi olan iade reddediliyordu. Ama iade başka bir pazara
+    // yönlendirildiğinde `writeReturnRow` KENDİ transfer kaydını yazıyor
+    // ("İade yönlendirme"), yani yönlendirilmiş hiçbir iade silinemiyordu —
+    // kayıt kendi engeline takılıyordu. Elle taşınmış iadeler de aynı duruma
+    // düşüyordu.
+    //
+    // Transfer kaydı entry'nin nereye gittiğinin logu; entry silindiğinde
+    // dayanağı kalmıyor. FK'si Restrict olduğu için önce o temizlenmeli.
+    // İşlemin izi AuditLog'da duruyor, iz kaybı yok.
     // Kısmî sevkiyat: entry split edilmişse miktarı iadedekinden az olur.
     // Kalanı silmek stoğu bozar — düzeltme kaydı girilmeli.
     // Miktar ekseni birime bağlı: bağ/adette miktar weight kolonunda durur,
@@ -1086,6 +1092,8 @@ export async function deleteReturn(req, res, next) {
       // Sıra önemli: ReturnRecord'un FK'leri SetNull olduğu için önce o silinir,
       // sonra bağlı kayıtlar. catch YOK — hata olursa tx tümüyle geri alınmalı.
       await tx.returnRecord.delete({ where: { id } })
+      // Transfer FK'si Restrict — entry'den önce gitmeli, yoksa delete patlar.
+      if (ret.entryId) await tx.transfer.deleteMany({ where: { entryId: ret.entryId } })
       if (ret.entryId) await tx.entry.delete({ where: { id: ret.entryId } })
       if (ret.ledgerEntryId) await tx.ledgerEntry.delete({ where: { id: ret.ledgerEntryId } })
       if (ret.caseMovementId) await tx.caseMovement.delete({ where: { id: ret.caseMovementId } })
