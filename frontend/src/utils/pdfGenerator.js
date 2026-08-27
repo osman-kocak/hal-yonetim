@@ -29,10 +29,63 @@ const fmt = (n) => new Intl.NumberFormat('tr-TR', {
 // Miktar hücresi kendi birimini taşır: "340,00 kg" · "30 bağ" · "8 adet".
 // formatQty yerine burada kuruluyor çünkü PDF binlik ayracı tr-TR olmalı.
 // IrsaliyePrint.jsx aynı biçimi üretir — ikisi lockstep.
-const qtyCell = (entry) => (isCountable(entry.unit)
-  ? `${Number(entry.weight)} ${unitLabel(entry.unit)}`
-  : `${fmt(entry.weight)} kg`)
+const qtyCell = (row) => (isCountable(row.unit)
+  ? `${Number(row.weight)} ${unitLabel(row.unit)}`
+  : `${fmt(row.weight)} kg`)
 
+// Fişte SATIR = ÜRÜN, mal kabul kaydı DEĞİL.
+//
+// ExitItem ↔ Entry 1:1 (schema.prisma → @@unique([entryId])). Aynı ürün depoya
+// farklı günlerde/partiler halinde girdiği ya da transferde bölündüğü için tek
+// irsaliyede aynı isim 3-4 kez basılıyordu. Bayi açısından bunun karşılığı yok:
+// eline tek kalem mal geçiyor.
+//
+// SADECE KOZMETİK. Birleştirme yalnızca FİŞTE GÖRÜNEN alanların TAMAMI aynıysa
+// yapılır: ürün + birim + net fiyat + indirim öncesi fiyat. Ayrışan tek şey
+// Entry kimliği kalır, o da zaten basılmıyor — yani çıktıdan hiçbir bilgi
+// kaybolmaz. Kasa hareketi, cari borç, kasa bakiyesi ve admin geçmiş ekranı
+// kayıt bazında kalmaya devam eder; hiçbiri bu fonksiyonu kullanmaz.
+//
+// IrsaliyePrint.jsx ile ORTAK: iki çıktı aynı satır listesinden beslenir, bu
+// yüzden sayfalama da (PAGE_ROWS) kendiliğinden lockstep kalır.
+export function irsaliyeRows(exit) {
+  const rows = []
+  const byKey = new Map()
+
+  for (const item of exit.items ?? []) {
+    const e = item.entry ?? {}
+    const ppk = item.pricePerKg ?? null
+    const raw = item.listPricePerKg
+    // İndirim yoksa (liste fiyatı net fiyata eşit/altındaysa) null'a indiriliyor.
+    // Anahtar NORMALIZE edilmiş değerle kurulmalı: aksi halde ekranda birebir
+    // aynı görünen iki satır, sırf listPricePerKg alanı farklı diye ayrı basılır.
+    const listPrice = ppk !== null && raw !== null && raw !== undefined && raw > ppk ? raw : null
+    // productId yoksa (eski/önbellekten gelen payload) ürün adına düşülür.
+    const key = [e.productId ?? e.product?.name ?? '—', e.unit, ppk, listPrice].join('|')
+
+    const hit = byKey.get(key)
+    if (hit) {
+      hit.caseCount += e.caseCount ?? 0
+      // Kuruşta yuvarla: 229,98 + 19,71 + 220,31 float'ta 470,00000000000006 verir.
+      hit.weight = Math.round((hit.weight + Number(e.weight ?? 0)) * 100) / 100
+      continue
+    }
+
+    const row = {
+      id: key,
+      name: e.product?.name ?? '—',
+      caseCount: e.caseCount ?? 0,
+      weight: Number(e.weight ?? 0),
+      unit: e.unit,
+      price: ppk,
+      listPrice,
+    }
+    byKey.set(key, row)
+    rows.push(row)
+  }
+
+  return rows
+}
 
 // Bayi özeti alanları — IrsaliyePrint.jsx'teki ikizleriyle lockstep.
 // Sunucu göndermezse "—": 0 basmak "borcu yok" demek olurdu.
@@ -172,21 +225,18 @@ export async function generateIrsaliye(exit, targetWin = null) {
   // ile PDF farklı basar.
   const head = [['No', 'Ürün', 'Kasa', 'Miktar', 'Birim Fiyat (TL)']]
 
-  const body = (exit.items ?? []).map((item) => {
-    const ppk = item.pricePerKg
-    const hasPrice = ppk !== null && ppk !== undefined
+  // Satırlar ürün bazında birleştirilmiş gelir — bkz. irsaliyeRows().
+  const body = irsaliyeRows(exit).map((r) => [
+    r.name,
+    r.caseCount,
+    qtyCell(r),
     // İndirim: PDF'te üstü çizili metin autoTable'da zahmetli, bu yüzden
     // "70 > 50" biçimi kullanılıyor. Ekran fişi (IrsaliyePrint) aynı bilgiyi
     // üstü çizili + ok ile basar — ikisi KİLİT ADIMLI, biri değişirse diğeri de.
-    const lst = item.listPricePerKg
-    const hasList = hasPrice && lst !== null && lst !== undefined && lst > ppk
-    return [
-      item.entry.product?.name ?? '—',
-      item.entry.caseCount,
-      qtyCell(item.entry),
-      hasPrice ? (hasList ? `${fmt(lst)} > ${fmt(ppk)}` : fmt(ppk)) : '—',
-    ]
-  })
+    r.price === null
+      ? '—'
+      : r.listPrice !== null ? `${fmt(r.listPrice)} > ${fmt(r.price)}` : fmt(r.price),
+  ])
 
   // Sayfa başına tam PAGE_ROWS satır: autoTable'ın kendi akışına bırakmak yerine
   // elle böl, her sayfayı kendimiz çizelim (header/footer sabit kalsın diye).

@@ -1,5 +1,5 @@
 import { usePrintStore } from '@/store/printStore'
-import { PAGE_ROWS } from '@/utils/pdfGenerator'
+import { PAGE_ROWS, irsaliyeRows } from '@/utils/pdfGenerator'
 import { formatDate, isCountable, unitLabel } from '@/utils/formatters'
 
 const fmt = (n) => new Intl.NumberFormat('tr-TR', {
@@ -28,26 +28,11 @@ export function IrsaliyePrintHost() {
 export function IrsaliyeSheet({ exit }) {
   const isEdited = !!exit.editedAt
 
-  const rows = (exit.items ?? []).map((item) => {
-    const ppk = item.pricePerKg
-    const hasPrice = ppk !== null && ppk !== undefined
-    // İndirim öncesi fiyat snapshot'ı. Dolu ve net'ten büyükse o kalemde
-    // indirim yapılmış demektir; fişte "70 → 50" basılır. Fiyat sonradan
-    // değişse de bu rakam sabit (bkz. ExitItem.listPricePerKg).
-    const lst = item.listPricePerKg
-    const hasList = hasPrice && lst !== null && lst !== undefined && lst > ppk
-    return {
-      id: item.id,
-      name: item.entry.product?.name ?? '—',
-      caseCount: item.entry.caseCount,
-      weight: item.entry.weight,
-      // Kayıt anındaki birim snapshot'ı — ürünün birimi sonradan değişse de
-      // basılmış fiş aynı kalmalı (bkz. Entry.unit).
-      unit: item.entry.unit,
-      price: hasPrice ? ppk : null,
-      listPrice: hasList ? lst : null,
-    }
-  })
+  // Aynı ürünün farklı mal kabul kayıtları TEK SATIRDA toplanır; birim ve fiyat
+  // snapshot'ları da anahtarın parçası, dolayısıyla fişte görünen hiçbir alan
+  // kaybolmaz. PDF ile aynı fonksiyondan besleniyor — ikisi ayrışamaz.
+  // Bkz. utils/pdfGenerator.js → irsaliyeRows().
+  const rows = irsaliyeRows(exit)
 
   // PDF ile birebir aynı sayfalama (bkz. utils/pdfGenerator.js). Sayfa başına
   // sabit satır — tarayıcının doğal akışına bırakılırsa iki çıktı ayrışıyor.
