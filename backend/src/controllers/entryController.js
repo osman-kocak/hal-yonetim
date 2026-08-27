@@ -187,6 +187,13 @@ export async function updateEntry(req, res, next) {
           weak: newWeak,
           disposableCase: newDisposable,
           bQuality: newBQuality,
+          // Mal kabul kasa snapshot'ı düzeltmeyi izler — aşağıdaki purchaseQty
+          // senkronuyla aynı gerekçe ("40 kasa yazmışım, 35'ti").
+          //
+          // YALNIZCA SNAPSHOT VARSA: null olan satır ya bu kolondan önce
+          // açılmıştır ya da bir transfer parçasıdır. İkisine de mal kabul
+          // rakamı uydurmak, olmayan bir girişi varmış gibi gösterir.
+          ...(entry.purchaseCases != null && { purchaseCases: newCaseCount }),
         },
         include: {
           product: true,
@@ -356,6 +363,7 @@ export async function createManualDepoEntry(req, res, next) {
           purchasePricePerKg: purchase.pricePerKg,
           purchasePriceSource: purchase.source,
           purchaseQty: w,
+          purchaseCases: c,
         },
         include: { product: true, quality: true, producer: true, market: true },
       })
@@ -586,6 +594,9 @@ export async function createEntryBatch(req, res, next) {
             // Mal kabul anındaki miktar. weight sonradan depo transferinde
             // yeniden tartılıp DEĞİŞEBİLİYOR — borç oradan türetilemez.
             purchaseQty: Number(e.weight),
+            // Aynı gerekçenin kasa ekseni: caseCount kısmî transferde parçadan
+            // düşülüyor, depo geçmişi "kaç kasa girdi"yi buradan okuyor.
+            purchaseCases: e.caseCount == null || e.caseCount === '' ? 0 : Number(e.caseCount),
           },
         })
 

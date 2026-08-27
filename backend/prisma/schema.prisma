@@ -276,6 +276,18 @@ model Entry {
   // gibi kendi kendini yalanlayan bir satır çıkar ve muhasebeci sisteme
   // güvenmez. Bu kolonla: "Alınan 100 kg · 1.000 TL · güncel stok 97 kg".
   purchaseQty         Float?
+  // Mal kabul anındaki KASA snapshot'ı — purchaseQty'nin kasa ekseni karşılığı.
+  //
+  // NEDEN caseCount VARKEN AYRI KOLON: caseCount da canlı stoktur ve kısmî
+  // transferde parçadan DÜŞÜLÜR (transferController: remainingCases /
+  // movedCases). Depo hareket geçmişi "o gün depoya kaç kasa girdi" diye
+  // soruyor; bölünmüş bir girişte caseCount o soruya giriş anındakinden AZ
+  // cevap verir ve kasa toplamı sessizce eksilir.
+  //
+  // purchaseQty ile aynı doldurma kuralı: YALNIZCA mal kabulde yazılır
+  // (createEntryBatch, createManualDepoEntry, düzeltme). Transfer/bölme ile
+  // doğan parçalarda NULL kalır — o parçalar yeni bir mal kabul değil.
+  purchaseCases       Int?
   // Bu mal kabulden doğan üretici borcu. Silinirse borç da düşer (Cascade).
   ledgerEntry         LedgerEntry?
   // Kaydı kim oluşturdu. Saha girişlerinde operatör, admin/muhasebenin elle

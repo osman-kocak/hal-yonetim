@@ -7,6 +7,10 @@ import { parsePagination, paginated } from '../utils/pagination.js'
 const EXPORT_RESOURCES = new Set([
   'finance', 'ledger', 'returns', 'history', 'transfers',
   'case-movements', 'reports', 'fire', 'producers', 'markets', 'users',
+  // Depo stoku ve depo hareket geçmişi. 'depo' listede YOKTU: DepoPage yıllardır
+  // resource='depo' gönderiyor, uç 400 dönüyor ve ExportButton log hatasını
+  // yutuyordu — yani depo dökümleri denetim kaydına hiç düşmemiş.
+  'depo', 'depo-history',
 ])
 
 // İstemci client-side export yapmadan ÖNCE bunu çağırır. Export tarayıcıda

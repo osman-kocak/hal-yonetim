@@ -2,8 +2,8 @@ import { prisma } from '../utils/prismaClient.js'
 import { getPriceMap } from './priceController.js'
 // Buradaki yerel parsePagination utils/pagination.js'e taşındı — aynı mantık
 // beş controller'da daha lazım oldu.
-import { parsePagination } from '../utils/pagination.js'
-import { DEPO_NO } from '../utils/markets.js'
+import { parsePagination, paginated } from '../utils/pagination.js'
+import { DEPO_NO, DISCARD_NO, findDepoMarket } from '../utils/markets.js'
 import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
 import { sumQty } from '../utils/units.js'
 import { priceOf } from '../utils/prices.js'
@@ -206,5 +206,214 @@ export async function getEntryHistory(req, res, next) {
     })
 
     res.json({ data, total, page, limit, hasMore: skip + data.length < total })
+  } catch (err) { next(err) }
+}
+
+// ——— Depo hareket defteri (/admin/depo → "Geçmiş" sekmesi) ———
+//
+// Cevapladığı soru: "akşam dönüp bakayım — bugün depoya ne girdi, depodan ne
+// çıktı, kim yaptı."
+//
+// NEDEN /admin/transfers YETMEDİ: Transfer tablosu depo hareketlerinin yalnızca
+// bir kısmını tutuyor. Mal kabulde DEPO seçilen giriş, ofisten elle açılan kayıt
+// ve depoya yazılan iade doğrudan Entry yaratır — Transfer satırı doğmaz. Sadece
+// Transfer'e bakan bir geçmiş "bugün depoya 40 kasa domates girdi"yi hiç
+// göstermez, yani sorunun yarısını sessizce yutar.
+//
+// KÖKEN TESPİTİ (kritik): Entry.marketId CANLI konumdur. Depodan çıkan mal artık
+// depoda görünmez — "şu an depoda duranlar" bir geçmiş DEĞİLDİR, akşam bakınca
+// gün içinde girip çıkan mal listeden silinmiş olur. Bir Entry'nin AÇILDIĞI
+// pazar = en eski Transfer'inin fromMarketId'si; hiç transferi yoksa güncel
+// marketId. Kayıt sonradan depodan çıkmış olsa da giriş satırı geçmişte kalır.
+//
+// SAYFALAMA JS TARAFINDA: satırlar iki ayrı tablodan gelip zaman ekseninde
+// harmanlanıyor, tek SQL sorgusuyla sayfalanamaz. Bu yüzden aralık HER ZAMAN
+// tarihle sınırlı (filtre verilmezse bugün) ve kaynak başına tavan var.
+const DEPO_HISTORY_CAP = 5000
+
+// Bir Entry ile ilk Transfer'i arasındaki bu süreden kısa fark, kaydın o
+// transferle BİRLİKTE doğduğu anlamına gelir (bkz. isTransferArtifact).
+// 5 sn: transaction en yavaş hâlinde bile bunun altında kapanır; gerçek bir
+// insan hareketi (malı depoya koy, sonra sevk et) hiçbir zaman bu kadar hızlı
+// olmaz.
+const SPLIT_WINDOW_MS = 5000
+
+// Bu Entry bir TRANSFER ARTIĞI mı — yani depoya hiç girmemiş, var olan malın
+// taşınan yarısı olarak mı doğdu?
+//
+// createGroupedTransfer ve removeEntryToDepo, KISMÎ aktarmada giden pay için
+// aynı transaction içinde YENİ bir Entry + onun Transfer'ini açıyor. Bu kaydın
+// "depoda durduğu" bir an hiç olmadı. Zincirden köken çıkarma (en eski
+// transferin fromMarketId'si) bunu depo kökenli sanıp GİRİŞ satırı üretiyordu:
+// asıl kayıt zaten kendi giriş satırını verdiği için aynı mal gün toplamında
+// İKİ KEZ sayılıyordu. Hareketin kendisini zaten Transfer satırı temsil ediyor.
+function isTransferArtifact(entry) {
+  const first = entry.transfers[0]
+  if (!first) return false
+  return Math.abs(new Date(first.createdAt) - new Date(entry.createdAt)) < SPLIT_WINDOW_MS
+}
+
+// Entry satırının hareket tipi. source tek başına yetmiyor: depodan 99'a
+// (imha) transfer edilen kaydın source'u sonradan DISCARD'a çevriliyor
+// (bkz. createGroupedTransfer), yani giriş anındaki tip kayboluyor —
+// depoya alınmış bir iade sonradan dökülürse "Elle Giriş" görünüyordu.
+// regionSessionId ve returnRecord ise hiç değişmiyor.
+//
+// source === 'RETURN' yedekte kalıyor: ReturnRecord silinince entryId SetNull
+// oluyor, o zaman ilişki kopuyor ama source hâlâ doğruyu söylüyor.
+function depoEntryType(e) {
+  if (e.regionSessionId != null) return 'INTAKE'
+  if (e.returnRecord || e.source === 'RETURN') return 'RETURN'
+  return 'MANUAL'
+}
+
+// "Yapan" — ekranın varlık sebebi bu kolon, boş geçilemez.
+// İade Entry'sine createdBy YAZILMIYOR (bkz. writeReturnRow); bilgi
+// ReturnRecord'da duruyor. Yazma yolunu değiştirmek yerine burada okunuyor:
+// böylece bugüne kadar açılmış iadeler de isimli görünür.
+function depoEntryActor(e) {
+  return e.createdBy ?? e.returnRecord?.createdBy ?? null
+}
+
+export async function getDepoHistory(req, res, next) {
+  try {
+    const depo = await findDepoMarket()
+    if (!depo) return res.status(404).json({ error: 'DEPO market kaydı bulunamadı' })
+
+    // Filtre verilmezse BUGÜN. Filtresiz açılışta tüm geçmişi çekmek hem yavaş
+    // hem ekranın amacına aykırı.
+    const createdAt = dateRangeFilter(req.query) ?? {
+      gte: startOfLocalDay(), lte: endOfLocalDay(),
+    }
+
+    const [transfers, entries] = await Promise.all([
+      prisma.transfer.findMany({
+        where: {
+          createdAt,
+          OR: [{ fromMarketId: depo.id }, { toMarketId: depo.id }],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: DEPO_HISTORY_CAP + 1,
+        include: {
+          entry: { include: { product: true, producer: true } },
+          fromMarket: { select: { no: true, name: true } },
+          toMarket: { select: { no: true, name: true } },
+        },
+      }),
+      prisma.entry.findMany({
+        where: {
+          createdAt,
+          // İki küme: hâlâ depoda duranlar + depodan çıkmış olanlar. İkincisi
+          // olmadan gün içinde girip çıkan mal geçmişten kaybolur.
+          OR: [
+            { marketId: depo.id },
+            { transfers: { some: { fromMarketId: depo.id } } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: DEPO_HISTORY_CAP + 1,
+        include: {
+          product: true,
+          producer: true,
+          regionSession: { include: { region: true } },
+          // Tip tespiti + "Yapan" alanı için (bkz. depoEntryType/depoEntryActor)
+          returnRecord: { select: { createdBy: true } },
+          // Köken tespiti için yalnızca EN ESKİ transfer lazım (createdAt ile
+          // birlikte: kaydın o transferle birlikte doğup doğmadığı okunuyor)
+          transfers: { orderBy: { createdAt: 'asc' }, take: 1, select: { fromMarketId: true, createdAt: true } },
+        },
+      }),
+    ])
+
+    const truncated = transfers.length > DEPO_HISTORY_CAP || entries.length > DEPO_HISTORY_CAP
+    const rows = []
+
+    for (const t of transfers.slice(0, DEPO_HISTORY_CAP)) {
+      const out = t.fromMarketId === depo.id
+      rows.push({
+        id: `T${t.id}`,
+        entryId: t.entryId,
+        direction: out ? 'OUT' : 'IN',
+        type: out
+          ? (t.toMarket?.no === DISCARD_NO ? 'DISCARD' : 'TRANSFER_OUT')
+          : 'TRANSFER_IN',
+        at: t.createdAt,
+        by: t.createdBy,
+        productName: t.entry?.product?.name ?? '—',
+        caseCount: t.entry?.caseCount ?? 0,
+        // Transfer satırında entry'nin miktarı taşınan miktardır: tam transferde
+        // weight sevkiyatta tartılan değere güncelleniyor, kısmî transferde
+        // giden pay için AYRI entry açılıyor (bkz. createGroupedTransfer).
+        weight: t.entry?.weight ?? 0,
+        unit: t.entry?.unit ?? 'CASE',
+        weak: !!t.entry?.weak,
+        disposableCase: !!t.entry?.disposableCase,
+        fromMarket: t.fromMarket?.name ?? null,
+        toMarket: t.toMarket?.name ?? null,
+        producerName: t.entry?.producer?.name ?? null,
+        regionName: null,
+        note: t.note ?? null,
+      })
+    }
+
+    for (const e of entries.slice(0, DEPO_HISTORY_CAP)) {
+      if (isTransferArtifact(e)) continue // taşınan malın yarısı, yeni bir giriş değil
+      const originMarketId = e.transfers[0]?.fromMarketId ?? e.marketId
+      if (originMarketId !== depo.id) continue // depoya sonradan uğramış, girişi başka pazarda
+      rows.push({
+        id: `E${e.id}`,
+        entryId: e.id,
+        direction: 'IN',
+        type: depoEntryType(e),
+        at: e.createdAt,
+        by: depoEntryActor(e),
+        productName: e.product?.name ?? '—',
+        // KASA: purchaseCases mal kabul anının donmuş kasa adedi. caseCount
+        // canlı stoktur ve kısmî transferde parçadan düşülüyor — bölünmüş bir
+        // girişte "kaç kasa girdi" sorusuna eksik cevap verir.
+        // ?? caseCount: kolon öncesi açılmış kayıtlarda eski davranışa düşer.
+        caseCount: e.purchaseCases ?? e.caseCount,
+        // MİKTAR: purchaseQty mal kabul anının donmuş miktarı, weight ise canlı
+        // stok (transferde yeniden tartılıyor / bölünüyor). Geçmişte "ne girdi"
+        // sorulduğu için snapshot öncelikli.
+        weight: e.purchaseQty ?? e.weight,
+        unit: e.unit,
+        weak: e.weak,
+        disposableCase: e.disposableCase,
+        fromMarket: null,
+        toMarket: depo.name,
+        producerName: e.producer?.name ?? null,
+        regionName: e.regionSession?.region?.name ?? null,
+        note: null,
+      })
+    }
+
+    rows.sort((a, b) => new Date(b.at) - new Date(a.at))
+
+    // Metin araması JS'te: satırlar zaten bellekte ve arama ürün/kişi/pazar
+    // alanlarının hepsini birden tarıyor — iki tabloya ayrı ayrı LIKE yazmak
+    // aynı sonucu daha kırılgan üretirdi.
+    const q = String(req.query.q ?? '').trim().toLocaleLowerCase('tr')
+    const matched = !q ? rows : rows.filter((r) => [
+      r.productName, r.by, r.producerName, r.regionName, r.fromMarket, r.toMarket, r.note,
+    ].some((v) => v && String(v).toLocaleLowerCase('tr').includes(q)))
+
+    const ins = matched.filter((r) => r.direction === 'IN')
+    const outs = matched.filter((r) => r.direction === 'OUT')
+    // Kasa toplamında siyah/karton kasa sayılmaz — depo ekranının geri kalanıyla
+    // aynı kural (utils/cases.js → trackedCases).
+    const summary = {
+      in: { count: ins.length, cases: sumTrackedCases(ins), ...sumQty(ins) },
+      out: { count: outs.length, cases: sumTrackedCases(outs), ...sumQty(outs) },
+    }
+
+    // Yön filtresi ÖZETTEN SONRA: özet gün bakışıdır, "sadece çıkışları göster"
+    // dendiğinde günün girişi ekrandan silinmemeli.
+    const dir = req.query.direction
+    const visible = dir === 'IN' || dir === 'OUT' ? matched.filter((r) => r.direction === dir) : matched
+
+    const pg = parsePagination(req)
+    const pageRows = visible.slice(pg.skip, pg.skip + pg.limit)
+    res.json({ ...paginated(pageRows, visible.length, pg), summary, truncated })
   } catch (err) { next(err) }
 }

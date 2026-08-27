@@ -224,6 +224,8 @@ export const api = {
   // Admin/muhasebe depo görünümü — /api/depo ACCOUNTING'e kapalı olduğu için ayrı yol
   getAdminDepoEntries: () => unwrap(http.get('/admin/depo/entries')),
   createManualDepoEntry: (data) => unwrap(http.post('/admin/depo/entry', data)),
+  // Depo hareket geçmişi. Filtre verilmezse backend BUGÜNÜ döner.
+  getAdminDepoHistory: (params) => unwrap(http.get('/admin/depo/history', { params })),
   listDepoReturns: (params) => unwrap(http.get('/depo/returns', { params })),
   // Saha iade ekranındaki "son iadeler" kutusu — düz dizi bekler
   listRecentReturns: (limit = 10) =>

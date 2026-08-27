@@ -34,7 +34,7 @@ import {
 } from '../controllers/producerPaymentController.js'
 import { logExport, listAuditLogs } from '../controllers/auditController.js'
 import { listOutages } from '../controllers/outageController.js'
-import { getExitHistory, getEntryHistory } from '../controllers/historyController.js'
+import { getExitHistory, getEntryHistory, getDepoHistory } from '../controllers/historyController.js'
 import { updateExit, deleteExit } from '../controllers/exitController.js'
 import {
   listMovements,
@@ -157,6 +157,9 @@ router.get('/transfers', listTransfers)
 // DEPO+ADMIN'e açık, ACCOUNTING oraya erişemiyor).
 router.get('/depo/entries', listDepoEntries)
 router.post('/depo/entry', createManualDepoEntry)
+// Depo hareket defteri — stok ekranı "şu an ne var"ı, bu uç "ne girdi/ne çıktı"yı
+// gösterir. İkisi ayrı sorular; gün içinde girip çıkan mal stokta hiç görünmez.
+router.get('/depo/history', getDepoHistory)
 
 
 // Finansal cari hesap

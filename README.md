@@ -12,6 +12,7 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - ⚖️ **Üç satış birimi** — `Product.unit`: **Kilo** (`CASE`, tartılır), **Bağ** (`BUNCH`: maydanoz, marul, roka…) ve **Adet** (`PIECE`). Birim yalnızca **miktar eksenini** belirler: miktar her birimde `weight` kolonunda durur (kg / bağ / adet) ve fiyat o birimin fiyatıdır (₺/kg, ₺/bağ, ₺/adet). Toplamlar üç ayrı kovada tutulur — bağ ile adet toplanabilir sayı değil. Birim `Entry.unit`'e snapshot'lanır; ürünün birimi sonradan değişse de geçmiş irsaliye/rapor anlamını korur
 - 🗑️ **Siyah/Karton kasa** — **Kasa sayımının tek belirleyicisi.** Tek kullanımlık kasada gelen mal işaretlenir (`Entry.disposableCase`) ve kasası hiçbir bakiyeye girmez (ne bölge, ne bayi, ne iade). İşaretlenmediyse kasa üç birimde de sayılır — bağ/adet malı da geri dönen kasayla geliyor. Zayıf Mal'dan bağımsız, ikisi birlikte seçilebilir
 - 📦 **Depo yönetimi** — Ürün bazlı toplu transfer (FIFO mantığı + parçalı kasa ayırma/split, bağ ürünlerde adet ekseninde). Hedef pazar mal kabuldeki gibi **numara yazılarak** seçilir
+- 🏬 **Depo giriş-çıkış geçmişi** — `/admin/depo` → **Geçmiş** sekmesi: bir günde depoya ne girdi, ne çıktı ve **kim yaptı**. Stok sekmesi bu soruyu CEVAPLAYAMAZ — `Entry.marketId` canlı konum alanı olduğu için depodan çıkan mal stok listesinden tamamen kaybolur, yani gün içinde girip aynı gün çıkan mal hiç olmamış gibi görünür. Uç, `Entry` ve `Transfer` tablolarını **tek zaman çizelgesinde birleştirir**: doğrudan depo girişleri (saha mal kabulü, ofis girişi, iade) `Transfer` satırı doğurmaz, yalnız transferlere bakmak bu hareketleri kaçırırdı. Bir girişin **kaynağı** en eski `Transfer.fromMarketId`'den, o yoksa güncel `marketId`'den çözülür. Kasa adedi `Entry.purchaseCases` snapshot'ından okunur (`caseCount` kısmî transferde parçadan düşülüyor, geçmiş sessizce eksik toplardı). Tarih aralığı, yön (giriş/çıkış), metin araması, sayfalama ve Excel/PDF export var
 - ↔️ **Pazardan pazara aktarma** — Yanlış pazara yazılan kalem, irsaliye kesilmeden önce çıkış ekranından doğru pazara aktarılır; geri alınabilir, kasa/cari hesap etkilenmez
 - 📋 **Çıkış & Teslim Fişi** — iPad'de PDF → AirPrint, masaüstünde doğrudan yazdırma; fiyat snapshot (fiş sonradan fiyat değişse de sabit kalır)
 - 🏷️ **İndirimli satış fiyatı** — `/admin/fiyatlar` satış sekmesinde iki alan: **Normal Fiyat** (indirim öncesi) ve **Net Fiyat** (fatura bundan kesilir). Normal boşsa indirim yok, tek fiyat geçerli. Dolu ve net'ten büyükse teslim fişinde **"70 → 50"** olarak basılır (normal fiyat üstü çizili) — bayi indirimi görür, fatura yine net tutardan hesaplanır. `Price.listPricePerKg` yalnız GÖSTERİM: `pricePerKg` anlamını korudu (uygulanacak tutar), bu yüzden fiyat okuyan hiçbir kod değişmedi. `ExitItem.listPricePerKg` snapshot'lanır, fiyat sonradan değişse eski fiş aynı indirimi gösterir. İndirim carry-forward'a tabi (değiştirilene kadar geçerli) ve tüm bayilere uygulanır. Normal < net girilirse 400 döner (alanlar karıştırılmış demektir), normal = net girilirse indirim yok sayılır — sahte "%0 indirim" basılmaz
@@ -316,6 +317,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/api/region/*` | RegionSession (aktif/tamamlanan) |
 | `/api/markets/*` | Pazar listesi (public dahil) |
 | `/api/admin/*` | Region/Producer/Product/Quality/User CRUD + raporlar + finans + iade |
+| `/api/admin/depo/history` | Depo hareket geçmişi (`ADMIN`+`ACCOUNTING`) — `Entry` + `Transfer` birleşik, yön/tarih/arama filtreli, sayfalı |
 | `/api/admin/purchase-prices/*` | **Alış** fiyatı (genel + üretici özel). Yalnız `ADMIN`/`ACCOUNTING` — saha karşılığı **yok** |
 | `/api/admin/producer-payments/*` | Üretici bakiye/özet, hesap ekstresi, mal kabul dökümü, tek + toplu ödeme, fiyatsız liste, yeniden hesaplama |
 | `/api/public/*` | Ortak listeler (bölge, üretici, ürün) |
@@ -504,6 +506,15 @@ olarak yazılır.
 - [ ] `OPERATOR` token'ıyla `/api/markets/:id/entries` ve `POST /api/entry/batch` yanıtlarında `purchasePricePerKg` **YOK**
 - [ ] `node scripts/check-producer-debt.js` → TEMİZ
 
+
+### Depo Geçmişi
+- [ ] Sahadan depoya mal kabul → Geçmiş sekmesinde **GİRİŞ** olarak göründü, kaydı yapan kullanıcı yazıyor
+- [ ] Depodan pazara transfer → **ÇIKIŞ** satırı çıktı, hedef pazar doğru
+- [ ] Aynı gün girip aynı gün çıkan mal → **iki satır** da var (stok sekmesinde hiç görünmüyor)
+- [ ] Kısmî transfer (split) → giriş satırı mal kabuldeki **tam kasa adedini** gösteriyor, bölünmüş rakamı değil
+- [ ] Bayiden iade → GİRİŞ satırı; imha → ÇIKIŞ satırı
+- [ ] Tarih aralığı boş bırakılınca **bugün** geliyor; yön filtresi ve arama çalışıyor
+- [ ] Export alındığında `AuditLog`'a `EXPORT` kaydı düştü (`depo-history`)
 
 ### Mal Kabul
 - [ ] Bölge seç → bölge oturumu açılır

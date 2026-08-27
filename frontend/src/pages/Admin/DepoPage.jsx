@@ -7,8 +7,19 @@ import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { ExportButton } from '@/components/ui/ExportButton'
+import { Segmented } from '@/components/ui/Segmented'
+import { DepoHistoryTab } from './Depo/DepoHistoryTab'
 import { formatDate, formatWeight, formatQty, isCountable, qtyLabel, sumQty, unitLabel } from '@/utils/formatters'
-import { Boxes, RefreshCw, Plus, AlertTriangle, Package, Search } from 'lucide-react'
+import { Boxes, RefreshCw, Plus, AlertTriangle, Package, Search, History } from 'lucide-react'
+
+// İKİ SEKME: stok "şu an depoda ne var", geçmiş "ne girdi / ne çıktı, kim yaptı".
+// Ayrı sorular ve stok ekranı ikincisini CEVAPLAYAMAZ: depodan çıkan kayıt
+// Entry.marketId değiştiği için stok listesinden tamamen kaybolur, yani gün
+// içinde girip aynı gün çıkan mal hiç olmamış gibi görünür.
+const TABS = [
+  { value: 'stok', label: 'Stok', icon: Boxes },
+  { value: 'gecmis', label: 'Geçmiş', icon: History },
+]
 
 // Admin/muhasebe depo görünümü. Saha ekranından (/depo) farkı: buradan transfer
 // yapılmaz, yalnızca stok görülür ve ELLE giriş açılır. Muhasebe /api/depo'ya
@@ -19,6 +30,7 @@ export function DepoPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [query, setQuery] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [tab, setTab] = useState('stok')
   const addToast = useToastStore((s) => s.addToast)
 
   const load = useCallback(async (silent = false) => {
@@ -80,12 +92,13 @@ export function DepoPage() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h1 className="text-xl font-bold text-text-primary flex items-center gap-2">
           <Boxes className="w-6 h-6 text-primary" />
-          Depo Stoku
+          Depo
         </h1>
         <div className="flex items-center gap-2 flex-wrap">
+          {tab === 'stok' && (
           <ExportButton
             title="Depo Stoku"
             filename={`depo-${new Date().toISOString().slice(0, 10)}`}
@@ -107,10 +120,13 @@ export function DepoPage() {
             })}
             disabled={!filtered.length}
           />
-          <Button variant="outline" onClick={() => load()} loading={refreshing} className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Yenile
-          </Button>
+          )}
+          {tab === 'stok' && (
+            <Button variant="outline" onClick={() => load()} loading={refreshing} className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" />
+              Yenile
+            </Button>
+          )}
           <Button onClick={() => setModalOpen(true)} className="flex items-center gap-2">
             <Plus className="w-4 h-4" />
             Elle Giriş
@@ -118,6 +134,11 @@ export function DepoPage() {
         </div>
       </div>
 
+      <div className="mb-4">
+        <Segmented value={tab} onChange={setTab} options={TABS} className="w-fit" />
+      </div>
+
+      {tab === 'gecmis' ? <DepoHistoryTab /> : (<>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
         <SummaryCard label="Depodaki Giriş" value={entries.length} />
         <SummaryCard label="Toplam Kasa" value={totals.cases} />
@@ -187,6 +208,8 @@ export function DepoPage() {
           </div>
         )}
       </div>
+
+      </>)}
 
       <ManualEntryModal
         open={modalOpen}
