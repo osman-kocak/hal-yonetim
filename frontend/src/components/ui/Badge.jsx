@@ -10,9 +10,15 @@ const variants = {
   error: 'bg-red-100 text-red-700',
 }
 
-export function Badge({ variant = 'default', className, children }) {
+// ...props yayılıyor: `title` (tooltip) gibi öznitelikler eskiden sessizce
+// düşüyordu — rozet "neden bu fiyat" gibi bir açıklama taşıyacaksa tooltip
+// şart, ve prop'un yutulduğu hiçbir hata vermediği için fark edilmiyordu.
+export function Badge({ variant = 'default', className, children, ...props }) {
   return (
-    <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold', variants[variant], className)}>
+    <span
+      className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold', variants[variant], className)}
+      {...props}
+    >
       {children}
     </span>
   )

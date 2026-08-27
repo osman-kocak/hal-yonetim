@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, asList, fetchAllPages } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -12,6 +13,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { ExportButton } from '@/components/ui/ExportButton'
 import { formatDate, today } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
+import { formatTL } from '@/utils/currency'
 import { Plus, Trash2, Store, User, Wallet, FileText, TrendingUp, TrendingDown } from 'lucide-react'
 
 const TABS = [
@@ -31,10 +33,6 @@ const TYPE_META = {
 
 const MARKET_MANUAL_TYPES = ['MARKET_PAYMENT', 'MARKET_ADJUSTMENT']
 const PRODUCER_MANUAL_TYPES = ['PRODUCER_DEBT', 'PRODUCER_PAYMENT', 'PRODUCER_ADJUSTMENT']
-
-function formatTL(value) {
-  return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value ?? 0)
-}
 
 function balanceClasses(balance) {
   if (balance > 0) return 'bg-amber-50 border-amber-200 text-amber-900'
@@ -150,6 +148,22 @@ function LedgerTab({ scope }) {
 
   return (
     <div>
+      {/* Bu sekme HAM DEFTER olarak kalıyor: elle düzeltme, açılış devri,
+          sistem dışı alım. Günlük ödeme işi ayrı ekranda — burada tutulsaydı
+          scope-agnostik LedgerTab'a üreticiye özel altı özellik eklemek
+          gerekirdi ve bayi tarafı hiç kullanmayacağı prop'ları taşırdı. */}
+      {!isMarket && (
+        <div className="mb-4 px-4 py-2.5 rounded-xl bg-primary-light text-sm text-primary-dark flex items-center justify-between gap-3 flex-wrap">
+          <span>
+            Bu sayfa ham cari defterdir. Ödeme yapmak, mal kabul dökümünü görmek ve
+            toplu ödeme için Üretici Ödeme panelini kullanın.
+          </span>
+          <Link to="/admin/uretici-odeme" className="font-semibold hover:underline whitespace-nowrap">
+            Ödeme paneline git →
+          </Link>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <div className="bg-white border border-border rounded-2xl p-4 shadow-card">
           <p className="text-xs text-text-muted uppercase tracking-wide">

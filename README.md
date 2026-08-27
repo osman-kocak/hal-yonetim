@@ -18,7 +18,12 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 🔄 **İade kabul** — Ayrı ekran (`/iade`): depoya al, başka pazara yolla **veya** imha et (atomic: Entry + Ledger + CaseMovement)
 - 💰 **Çoklu rol kullanıcı sistemi** — `ADMIN`, `DEPO`, `OPERATOR`, `ACCOUNTING`, `CASE_MANAGER`
 - 🧺 **Boş kasa takibi** — İki yönlü: **bayi** tarafı (otomatik `MARKET_OUT` irsaliye ile) ve **bölge** tarafı (bölgeye verilen kasa `REGION_OUT`, mal kabulde otomatik `REGION_IN` düşümü) + manuel düzeltme hareketleri
-- 📊 **Cari hesap** — Bayi alacak (irsaliye), üretici borç (manuel + ödeme)
+- 📊 **Cari hesap** — Bayi alacak (irsaliye otomatik), üretici borç (**mal kabulde otomatik**) + ödeme
+- 🤝 **Üretici ödeme paneli** — `/admin/uretici-odeme`. Mal kabul kaydedildiği anda üreticiye borç yazılır (`PRODUCER_DEBT`, `LedgerEntry.entryId` ile mal kabule bağlı). Panel: bakiye listesi (kümülatif kalan + dönemsel mal bedeli/ödenen), üretici detayı (hesap ekstresi + **mal kabul dökümü** + ödeme geçmişi), tek ve **toplu ödeme** (bakiyeleri kapat / sabit tutar / toplam dağıt — tek transaction, `clientId` ile idempotent), nakit/havale/çek ayrımı, A4 iki nüshalı **imzalı makbuz**, Excel/PDF export. Ödeme silme ve toplu yeniden hesaplama yalnız `ADMIN`
+- 💸 **Alış fiyatı (satıştan bağımsız)** — İş modeli alım-satım: üreticiden mal ayrı bir **alış** fiyatıyla alınır, bayiye ayrı **satış** fiyatıyla kesilir; komisyon/stopaj YOK. `/admin/fiyatlar` üç sekmeli — satış, alış ve üretici özel fiyatı; her sekmede iki fiyat yan yana ve **marj kolonu** (alış > satış ise kırmızı uyarı, zararına satış girişte yakalanır). Alış fiyatı **ticari sırdır**: saha rollerine (`OPERATOR`/`DEPO`/`CASE_MANAGER`) hiçbir uçtan sızmaz — koruma `middleware/purchaseGuard.js`'te *fail-closed* (varsayılan gizle, `/admin` hariç), yeni bir saha ucu eklendiğinde otomatik korunur
+- 🎚️ **Üç katmanlı alış fiyatı** — Sırayla: **(1)** üretici+ürün+gün özel fiyatı → **(2)** üreticinin yüzde primi/iskontosu (`Producer.pricePremiumPct`, ör. +%5) → **(3)** genel alış fiyatı. Fallback zinciridir, formül değil: **özel fiyat varsa prim UYGULANMAZ** (özel fiyat zaten o sapmanın kendisi; üstüne prim eklemek çift sapma yazar ve muhasebeci 14,00 girip 14,70 görürse özelliği bir daha kullanmaz). Uygulanan fiyat + kaynağı `Entry.purchasePricePerKg` / `purchasePriceSource` ile **snapshot**'lanır — fiyat sonradan değişse geçmiş borç sabit kalır. Tek karar noktası: [`backend/src/utils/purchasePrices.js`](backend/src/utils/purchasePrices.js)
+- ⚠️ **Fiyatsız mal kabul uyarısı** — Alış fiyatı girilmemişse borç **yazılmaz** (0 yazılmaz: sıfır "bedava aldık", yok "muhasebeci girmedi" demek). O kayıtlar panelin "Fiyatsız Mal Kabul" sekmesinde **ürün bazında gruplu** birikir; fiyat sonradan girilip *Yeniden Hesapla* çalıştırılınca borçlar üretilir (**idempotent** — borcu yazılmış kayda ikinci kez yazmaz). Üreticisi seçilmemiş girişlere aynı ekrandan üretici atanır ve borç o anda doğar
+- 🔥 **Fire de ödenir** — `99 ATILAN`'a giden, `weak` işaretli ve siyah kasadaki mal da üretici borcu yazar; `source`/`weak`/`disposableCase` ayrımı yapılmaz. Depo transferinde mal **yeniden tartıldığı** için `Entry.weight` değişebiliyor — bu yüzden borç `weight`'ten değil mal kabul anındaki `Entry.purchaseQty` snapshot'ından hesaplanır; dökümde "alınan 100 kg · güncel stok 97 kg (3 kg fire)" olarak görünür
 - 📈 **Raporlar** — Günlük, pazar bazlı, ürün bazlı, top products
 - 📥 **PDF + XLSX export** — Tüm liste sayfalarında (jsPDF + SheetJS, lazy-loaded). `/admin/takip` çıktısı **çok sekmeli**: irsaliyeler pazara, girişler bölgeye göre ayrı sekmelerde + baştaki "Tümü" sekmesi
 - 📡 **Offline mal kabul (Faz 1)** — Kesintide mal kabul girişleri iPad'de **IndexedDB kuyruğuna** yazılır, bağlantı gelince FIFO sırayla gönderilir. Form önce doğrudan göndermeyi dener, YALNIZCA ağ hatasında kuyruğa düşer (validasyon hatası kuyruğa girmez). Her istek `clientId` taşır ve backend `SyncedBatch` ile aynı kaydı iki kez yazmaz — timeout "istek gitmedi" demek değil. Service worker uygulama kabuğunu önbelleğe alır: sunucu tamamen kapalıyken bile ekran açılır, pazar/ürün/üretici listeleri cache'ten gelir. **Faz 2'de iade de eklendi:** bayiden iade kesintide kuyruğa alınır, bağlantı gelince cari hesaba işlenir. İadenin GERÇEK zamanı gönderilir (`occurredAt`) — kuyrukta bekleyen kayıt sync anına yazılsa cari hesap yanlış güne düşerdi; istemci saati gelecekse ya da 7 günden eskiyse sunucu saatine düşülür. **Offline'da çalışmayan koruma:** "bu ürün bu bayiye son 7 günde gönderilmiş mi" kontrolü sunucudan geliyor, kesintide yapılamıyor — ekran bunu açıkça yazar ("gönderi geçmişi kontrolü yapılamadı"), sessizce "hiç gönderilmemiş" demez. **Kesintide yeni bölge de açılabiliyor:** istemci oturum numarası uydurmuyor — parti `regionId` ile gidiyor, oturumu sunucu çözüyor (açık varsa o, yoksa yeni). Kuyrukta bağımlılık grafiği gerekmiyor, düz FIFO korunuyor. İki cihaz aynı bölgeyi offline açsa bile tek oturuma düşer; veritabanındaki partial unique index (`regionId WHERE status='ACTIVE'`) yarışı kapatıyor. Oturumun gerçek açılış anı `openedAt`'te taşınır. Mal kabul ekranı açılırken **tüm bölgelerin** üreticileri önden indirilir, yoksa kesintide hiç girilmemiş bölgede liste boş kalırdı. **Kalan sınır:** çıkış (irsaliye) offline çalışmaz; offline açılan bölge, kayıtlar gönderilmeden "Bölge Bitti" ile kapatılamaz; iOS'ta arka plan senkronu olmadığı için kuyruk yalnızca uygulama ön plandayken ilerler. Ayrıntı: [`frontend/src/lib/syncQueue.js`](frontend/src/lib/syncQueue.js)
@@ -310,6 +315,8 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/api/region/*` | RegionSession (aktif/tamamlanan) |
 | `/api/markets/*` | Pazar listesi (public dahil) |
 | `/api/admin/*` | Region/Producer/Product/Quality/User CRUD + raporlar + finans + iade |
+| `/api/admin/purchase-prices/*` | **Alış** fiyatı (genel + üretici özel). Yalnız `ADMIN`/`ACCOUNTING` — saha karşılığı **yok** |
+| `/api/admin/producer-payments/*` | Üretici bakiye/özet, hesap ekstresi, mal kabul dökümü, tek + toplu ödeme, fiyatsız liste, yeniden hesaplama |
 | `/api/public/*` | Ortak listeler (bölge, üretici, ürün) |
 
 > Tüm yazma uçları `requireAuth` + rol middleware. Detay için `backend/src/routes/`.
@@ -329,8 +336,9 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/iade` | DEPO, ADMIN | Bayiden mal iadesi (depoya / başka pazara / imha) + son iadeler |
 | `/kasaci` | CASE_MANAGER, ADMIN | Kasa hareketleri |
 | `/admin` | ADMIN, ACCOUNTING | Dashboard |
-| `/admin/fiyatlar` | ADMIN, ACC. | Günlük fiyat girişi — ürün başına TEK fiyat |
-| `/admin/finans` | ADMIN, ACC. | Bayi alacak / Üretici borç cari |
+| `/admin/fiyatlar` | ADMIN, ACC. | Günlük fiyat girişi — 3 sekme: satış · alış · üretici özel fiyatı (+ marj kolonu) |
+| `/admin/finans` | ADMIN, ACC. | Bayi alacak / Üretici borç cari — **ham defter** (elle düzeltme, açılış devri) |
+| `/admin/uretici-odeme` | ADMIN, ACC. | Üretici ödeme paneli (bakiye, ekstre, mal kabul dökümü, tek/toplu ödeme, makbuz) |
 | `/admin/takip` | ADMIN, ACC. | Geçmiş hareket logu |
 | `/admin/kasalar` | ADMIN, ACC. | Kasa hareketleri raporu |
 | `/admin/transferler` | ADMIN, ACC. | Transfer geçmişi |
@@ -352,15 +360,17 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 Ana entity'ler:
 
 - **Region** — Bölge (üreticilere ve bölge oturumlarına bağlı)
-- **Producer** — Üretici (bölgeye opsiyonel bağlı; `allRegions=true` ise her bölgenin listesinde görünür)
+- **Producer** — Üretici (bölgeye opsiyonel bağlı; `allRegions=true` ise her bölgenin listesinde görünür). `pricePremiumPct` → genel **alış** fiyatına uygulanan yüzde prim/iskonto (+5 = %5 fazla öde, −3 = %3 eksik). Ürün bazlı özel fiyat varsa **uygulanmaz**
 - **RegionSession** — Bir bölgenin gün içi mal kabul oturumu (`ACTIVE`/`COMPLETED`)
 - **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable). `Product.unit: ProductUnit` (`CASE`/`BUNCH`/`PIECE`) → satış birimi (kilo / bağ / adet). **Quality kullanımdan kalktı** (2026-08-13): mal kabul zaten kalite göndermiyordu, fiyat ürün başına tek. Tablo ve `Entry.qualityId`/`ReturnRecord.qualityId` alanları geçmiş kayıtlar için duruyor
 - **Market** — Pazar/bayi (`no` unique numara)
-- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti, `bQuality` ikinci kalite işareti (**yalnızca etiket** — kasa hesabına ve fiyata karışmaz). `disposableCase` ve `bQuality` satır bazında ayarlanabilir: mal kabulde üstteki tik partinin tamamına uygulanır, kart üzerindeki işaret tek satırı ayrıştırır
+- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `purchasePricePerKg` / `purchasePriceSource` / `purchaseQty` → mal kabul anındaki **alış snapshot'ı**; borç bunlardan hesaplanır, `weight`'ten değil (transferde yeniden tartılıp değişebiliyor). Bu üç kolon **ticari sır**, saha yanıtlarından `middleware/purchaseGuard.js` ile silinir. `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti, `bQuality` ikinci kalite işareti (**yalnızca etiket** — kasa hesabına ve fiyata karışmaz). `disposableCase` ve `bQuality` satır bazında ayarlanabilir: mal kabulde üstteki tik partinin tamamına uygulanır, kart üzerindeki işaret tek satırı ayrıştırır
 - **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot)
 - **Transfer** — Pazardan pazara taşıma geçmişi
+- **PurchasePrice** — Günlük **alış** fiyatı (üreticiye ödenen). `Price`'ın eşi ve ondan tamamen bağımsız; kalite kolonu **yok** (bilinçli — `Price`'taki nullable-unique tuzağı tekrarlanmasın diye, bu yüzden `@@unique(productId, date)` gerçek unique ve `prisma.upsert` çalışıyor). Carry-forward aynı: fiyat değiştirilene kadar geçerli
+- **ProducerPrice** — Üretici + ürün + gün özel alış fiyatı; katmanların en üstü, varsa prim uygulanmaz. `cancelled` → özel fiyatı kaldırmanın **tek doğru yolu**: satır silinseydi carry-forward bir önceki fiyatı diriltir ve "kaldırdım" denen rakam geri gelirdi
 - **Price** — Günlük fiyat. `qualityId` **nullable**: NULL = ürünün genel fiyatı (yeni standart, kalite kullanımdan kalktı), dolu = eski kaliteli satır. Arama iki katmanlı — önce ürün+kalite, yoksa genel: **tek karar noktası [`backend/src/utils/prices.js`](backend/src/utils/prices.js) → `priceOf()`**. Genel fiyatın tekilliğini partial unique index sağlar; `@@unique` NULL'lu satırları kapsamaz (Postgres'te iki NULL eşit sayılmaz)
-- **LedgerEntry** — Bayi/üretici cari hesap kaydı (`MARKET_INVOICE`, `PAYMENT`, `ADJUSTMENT`, …)
+- **LedgerEntry** — Bayi/üretici cari hesap kaydı (`MARKET_INVOICE`, `PAYMENT`, `ADJUSTMENT`, …). `entryId` **unique + cascade** → `PRODUCER_DEBT`'i doğduğu mal kabule bağlar (`exitId`'nin üretici tarafındaki aynası): bir giriş en fazla bir borç doğurur (offline retry'a karşı ikinci savunma hattı), giriş silinince borç da düşer, ve dolu `entryId` "bu kayıt otomatik" demek — elle silinemez. `paymentMethod` (`CASH`/`TRANSFER`/`CHECK`) yalnız `*_PAYMENT` tiplerinde dolar, DB'de CHECK constraint zorluyor. Bakiye kolonu **yok**, `signFor()` + `groupBy` ile hesaplanır
 - **CaseMovement** — Boş kasa hareketi. Bayi tarafı (`MARKET_OUT/IN/INIT/ADJUST`, `marketId`) ve bölge tarafı (`REGION_OUT/IN/ADJUST`, `regionId`). `REGION_IN` mal kabulle otomatik doğar, `entryId` ile girişe bağlıdır (unique + cascade). **Hangi kaydın kasa hesabına gireceğine tek yer karar verir: [`backend/src/utils/cases.js`](backend/src/utils/cases.js) → `trackedCases()`** — yalnızca siyah/karton kasa 0 döner; birim karışmaz (2026-08-13'te değişti, önce `BUNCH` da 0 dönüyordu)
 - **ReturnRecord** — Bayiden iade (atomic Entry + Ledger + CaseMovement bağlar)
 - **User** — Sistem kullanıcısı + `roles: UserRole[]`
@@ -467,6 +477,24 @@ olarak yazılır.
 ---
 
 ## 🧪 Manuel Test Checklist
+
+### Üretici Ödeme / Alış Fiyatı
+- [ ] `/admin/fiyatlar` → Alış sekmesinde fiyat gir → mal kabul yap → üreticinin bakiyesi doğru arttı
+- [ ] Fiyatsız ürünle mal kabul → **borç yazılmadı** ve "Fiyatsız Mal Kabul" sekmesinde göründü
+- [ ] Prim `%5` üreticide borç genel fiyatın %5 üstü, dökümde rozet `+%5 prim`
+- [ ] Aynı üreticiye ürün bazlı **özel fiyat** tanımla → borç özel fiyattan, rozet `Özel fiyat`, **prim uygulanmadı**
+- [ ] Özel fiyatı temizle (✕) → ertesi gün prim katmanına düştü, eski özel fiyat geri gelmedi
+- [ ] `99 ATILAN`'a mal kabul → **borç yazıldı** (fire de ödenir)
+- [ ] Bayiden iade al → üretici bakiyesi **değişmedi** (çift borç yok)
+- [ ] Depo transferinde kiloyu değiştir → borç **değişmedi**, dökümde fire farkı göründü
+- [ ] Mal kabul kilosunu düzelt → borç senkronlandı; girişi sil → borç da silindi
+- [ ] `/admin/finans` üretici sekmesinden otomatik borcu silmeye çalış → **400** hatası
+- [ ] Tek ödeme + makbuz: A4'te iki nüsha, ödeme öncesi/sonrası bakiye doğru, tutarlar "TL" (₺ değil)
+- [ ] Toplu ödeme: "Bakiyeleri Kapat" → seçilenlerin bakiyesi sıfırlandı; bir satıra hatalı tutar gir → **hiçbiri** yazılmadı
+- [ ] Aynı toplu ödemeyi iki kez gönder (çift tıkla) → ikinci kez para yazılmadı
+- [ ] `OPERATOR` token'ıyla `/api/markets/:id/entries` ve `POST /api/entry/batch` yanıtlarında `purchasePricePerKg` **YOK**
+- [ ] `node scripts/check-producer-debt.js` → TEMİZ
+
 
 ### Mal Kabul
 - [ ] Bölge seç → bölge oturumu açılır

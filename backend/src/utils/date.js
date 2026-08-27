@@ -40,3 +40,23 @@ export function endOfLocalDay(input = new Date()) {
   if (!p) return null
   return new Date(p.y, p.m - 1, p.d, 23, 59, 59, 999)
 }
+
+// İstemciden gelen işlem zamanını güvenli aralığa sıkıştırır.
+//
+// NEDEN: offline kuyrukta bekleyen parti saatler sonra gönderilebiliyor; sync
+// anını yazmak cari hesabı YANLIŞ GÜNE düşürür ve o günün fiyatıyla hesaplar.
+// İstemci saatine de körü körüne güvenilmez — iPad'in saati kayabilir, gelecek
+// tarihli veya çok eski bir kayıt raporları bozar.
+//
+// Geçerli değilse sunucu saati döner. Sınırlar: en fazla 1 dk gelecek (saat
+// senkron toleransı), en fazla 7 gün geçmiş (kuyrukta bu kadar bekleyen parti
+// zaten elle incelenmeli).
+export function clampClientTime(input, { maxPastMs = 7 * 24 * 60 * 60 * 1000 } = {}) {
+  if (!input) return new Date()
+  const t = new Date(input)
+  const now = Date.now()
+  const gecerli = !Number.isNaN(t.getTime())
+    && t.getTime() <= now + 60_000
+    && t.getTime() > now - maxPastMs
+  return gecerli ? t : new Date()
+}

@@ -3,11 +3,16 @@ import { auditCreate, auditDelete } from '../utils/audit.js'
 import { startOfLocalDay, endOfLocalDay } from '../utils/date.js'
 import { audit } from '../utils/audit.js'
 import { parsePagination, paginated } from '../utils/pagination.js'
+import { round2 } from '../utils/money.js'
+import { clampToTracking } from '../utils/purchaseTracking.js'
 
 const MARKET_TYPES = ['MARKET_INVOICE', 'MARKET_PAYMENT', 'MARKET_ADJUSTMENT']
 const PRODUCER_TYPES = ['PRODUCER_DEBT', 'PRODUCER_PAYMENT', 'PRODUCER_ADJUSTMENT']
 const MANUAL_TYPES = ['MARKET_PAYMENT', 'MARKET_ADJUSTMENT', 'PRODUCER_DEBT', 'PRODUCER_PAYMENT', 'PRODUCER_ADJUSTMENT']
 const ADJUSTMENT_TYPES = ['MARKET_ADJUSTMENT', 'PRODUCER_ADJUSTMENT']
+// paymentMethod yalnız bu tiplerde dolabilir (DB'de CHECK constraint ile de zorlanıyor)
+const PAYMENT_TYPES = ['MARKET_PAYMENT', 'PRODUCER_PAYMENT']
+export const PAYMENT_METHODS = ['CASH', 'TRANSFER', 'CHECK']
 
 // Bakiye etkisi.
 //
@@ -62,7 +67,7 @@ export async function listEntries(req, res, next) {
 
 export async function createEntry(req, res, next) {
   try {
-    const { type, amount, marketId, producerId, note, occurredAt, createdBy } = req.body
+    const { type, amount, marketId, producerId, note, occurredAt, createdBy, paymentMethod } = req.body
 
     if (!MANUAL_TYPES.includes(type)) {
       return res.status(400).json({ error: 'Geçersiz hareket tipi' })
@@ -89,6 +94,19 @@ export async function createEntry(req, res, next) {
       if (!producerId) return res.status(400).json({ error: 'Üretici zorunlu' })
     }
 
+    // Ödeme yöntemi yalnız tahsilat/ödeme kayıtlarında anlamlı: borç veya
+    // düzeltme kaydına "nakit" yazmak muhasebede karşılığı olmayan bilgi üretir
+    // ve "bugün kasadan ne çıktı" raporunu şişirir. DB'de de CHECK constraint
+    // aynısını zorluyor — burada yakalanmazsa generic 500'e düşerdi.
+    if (paymentMethod != null && paymentMethod !== '') {
+      if (!PAYMENT_TYPES.includes(type)) {
+        return res.status(400).json({ error: 'Ödeme yöntemi yalnızca tahsilat/ödeme kayıtlarında girilebilir' })
+      }
+      if (!PAYMENT_METHODS.includes(paymentMethod)) {
+        return res.status(400).json({ error: 'Ödeme yöntemi nakit, havale veya çek olmalı' })
+      }
+    }
+
     const data = {
       type,
       amount: a,
@@ -97,6 +115,10 @@ export async function createEntry(req, res, next) {
       producerId: PRODUCER_TYPES.includes(type) ? Number(producerId) : null,
       occurredAt: occurredAt ? new Date(occurredAt) : new Date(),
       createdBy: createdBy?.trim() || req.user?.name || req.user?.username || 'Admin',
+      paymentMethod: paymentMethod || null,
+      // entryId BİLEREK YOK: elle girilen kayda mal kabul bağı yazılamaz.
+      // Dolu entryId "bu kayıt otomatik" demek ve silinmesini engelliyor —
+      // istemcinin bu ayrımı bozabilmesi para kaydını kilitlemenin yolu olurdu.
     }
     const entry = await prisma.ledgerEntry.create({
       data,
@@ -130,6 +152,15 @@ export async function deleteEntry(req, res, next) {
     if (entry.returnRecord) {
       return res.status(400).json({
         error: 'İade bağlantılı hareket silinemez; iade kaydını silin',
+      })
+    }
+    // ÜÇÜNCÜ KAPI: mal kabulden otomatik doğan üretici borcu. Silinirse üretici
+    // malı teslim etmiş ama alacağı kayıtlarda görünmez olur ve mutabakat
+    // script'i "eksik borç" verir. Düzeltme yolu girişin kendisi: kilo
+    // düzeltilirse borç senkronlanır, giriş silinirse borç Cascade ile düşer.
+    if (entry.entryId) {
+      return res.status(400).json({
+        error: 'Mal kabul bağlantılı borç silinemez; ilgili mal kabul kaydını düzenleyin veya silin',
       })
     }
     await prisma.ledgerEntry.delete({ where: { id } })
@@ -216,14 +247,69 @@ export async function financialReport(req, res, next) {
       + (totalSums.PRODUCER_ADJUSTMENT ?? 0)
       - (totalSums.PRODUCER_PAYMENT ?? 0)
 
+    // ——— TAHAKKUK MARJI ———
+    //
+    // Artık hesaplanabiliyor çünkü PRODUCER_DEBT mal kabul anında OTOMATİK
+    // yazılıyor (2026-08-26). Öncesinde borç muhasebecinin elle girdiği kadardı
+    // ve bu satır anlamsızdı — o yüzden rapor yalnız nakit akışını gösteriyordu.
+    //
+    // MARKET_ADJUSTMENT dahil: bayi iadeleri buraya NEGATİF yazılıyor
+    // (transferController) — iade satışı geri alıyor, ciradan düşmeli.
+    // PRODUCER_ADJUSTMENT dahil: üretici tarafındaki elle düzeltmeler de
+    // maliyetin parçası.
+    const revenueAccrued = round2(totalInvoice + (sums.MARKET_ADJUSTMENT ?? 0))
+    const costAccrued = round2(totalDebt + (sums.PRODUCER_ADJUSTMENT ?? 0))
+    const margin = round2(revenueAccrued - costAccrued)
+    const marginRate = revenueAccrued > 0 ? round2((margin / revenueAccrued) * 100) : null
+
+    // Marjın ne kadarı sistemin hesabı, ne kadarı elle giriş. Geçiş döneminde
+    // (otomatik borç öncesi kayıtlar) bu ikisi ayrı okunmalı.
+    const autoAgg = await prisma.ledgerEntry.aggregate({
+      where: { type: 'PRODUCER_DEBT', entryId: { not: null }, ...where },
+      _sum: { amount: true },
+    })
+    const autoCost = round2(autoAgg._sum.amount ?? 0)
+
+    // FİYATSIZ GİRİŞ SAYACI — bu olmadan marj SESSİZCE ŞİŞER: alış fiyatı
+    // girilmemiş mal maliyetsiz görünür ve kâr olduğundan yüksek çıkar.
+    // createExit'in missingPrices'ıyla aynı disiplin.
+    const entryRange = {}
+    if (dateFrom || dateTo) {
+      entryRange.createdAt = {}
+      if (dateFrom) entryRange.createdAt.gte = startOfLocalDay(dateFrom)
+      if (dateTo) entryRange.createdAt.lte = endOfLocalDay(dateTo)
+    }
+    // Alış takibi başlangıcından itibaren (bkz. utils/purchaseTracking.js) —
+    // öncesi bilinçli olarak fiyatsız, marj uyarısına karışmamalı.
+    const missingPriceEntryCount = await prisma.entry.count({
+      where: clampToTracking({ producerId: { not: null }, purchasePricePerKg: null, ...entryRange }),
+    })
+
     res.json({
       period: { dateFrom: dateFrom ?? null, dateTo: dateTo ?? null },
       revenue: { invoiced: totalInvoice, collected: totalCollected },
       expense: { owedToProducers: totalDebt, paidToProducers: totalPaid },
-      net: totalCollected - totalPaid,
+      // NAKİT ESASLI (kasa hareketi — kâr DEĞİL).
+      cash: { collected: totalCollected, paid: totalPaid, net: round2(totalCollected - totalPaid) },
+      // DEPRECATED, cash.net ile aynı. SİLİNMEDİ: deploy sırasında tarayıcıda
+      // duran eski frontend bundle'ı bu alanı okuyor, kaldırılırsa kâr-zarar
+      // kartı boş görünür (aynı gerekçe utils/pagination.js'te de yazılı).
+      net: round2(totalCollected - totalPaid),
+      // TAHAKKUK ESASLI (gerçek marj)
+      accrual: {
+        revenue: revenueAccrued,
+        cost: costAccrued,
+        autoCost,
+        manualCost: round2(costAccrued - autoCost),
+        margin,
+        marginRate,
+        // > 0 ise ekran uyarı basmalı: "N mal kabulün alış fiyatı yok, marj
+        // olduğundan yüksek."
+        missingPriceEntryCount,
+      },
       pending: {
-        fromMarkets: Math.round(pendingFromMarkets * 100) / 100,
-        toProducers: Math.round(pendingToProducers * 100) / 100,
+        fromMarkets: round2(pendingFromMarkets),
+        toProducers: round2(pendingToProducers),
       },
     })
   } catch (err) {

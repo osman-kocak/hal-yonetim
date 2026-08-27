@@ -326,6 +326,13 @@ export function CrudPage({
                   label={f.label}
                   type={f.type ?? 'text'}
                   inputMode={f.inputMode}
+                  // step/min/max ondalıklı sayı alanları için ŞART: type="number"
+                  // varsayılan step=1 demek, "2.5" girildiğinde tarayıcı alanı
+                  // geçersiz sayıyor ve form sessizce BOŞ kaydediyor. Üretici
+                  // prim yüzdesi (%2,5 gibi) tam olarak bu duruma düşüyordu.
+                  step={f.step}
+                  min={f.min}
+                  max={f.max}
                   placeholder={f.placeholder}
                   value={form[f.name] ?? ''}
                   onChange={(e) => setForm((prev) => ({ ...prev, [f.name]: e.target.value }))}

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { cn } from '@/utils/cn'
+import { formatTLShort } from '@/utils/currency'
 import { isCountable } from '@/utils/formatters'
 import {
   ResponsiveContainer,
@@ -21,10 +22,6 @@ const PERIODS = [
 ]
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#a855f7', '#ec4899', '#94a3b8']
-
-function formatTL(value) {
-  return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(value ?? 0)
-}
 
 function formatNum(value, fractionDigits = 0) {
   return new Intl.NumberFormat('tr-TR', { maximumFractionDigits: fractionDigits }).format(value ?? 0)
@@ -105,7 +102,7 @@ export function DashboardPage() {
               <Kpi label="Adet" value={formatNum(data.overview.kpi.pieces)} icon={Package} color="primary" to="/admin/takip?tab=girisler" />
             )}
             <Kpi label="İrsaliye" value={formatNum(data.overview?.kpi.exits)} icon={FileText} color="primary" to="/admin/takip?tab=irsaliyeler" />
-            <Kpi label="Ciro" value={formatTL(data.overview?.kpi.invoiced)} icon={Wallet} color="green" to="/admin/finans" />
+            <Kpi label="Ciro" value={formatTLShort(data.overview?.kpi.invoiced)} icon={Wallet} color="green" to="/admin/finans" />
             <Kpi label="Zayıf Mal" value={`%${formatNum(data.overview?.kpi.weakRate, 1)}`} icon={AlertTriangle} color={data.overview?.kpi.weakRate > 10 ? 'red' : 'amber'} to="/admin/takip?tab=girisler" />
           </div>
 
@@ -113,7 +110,7 @@ export function DashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
             <Kpi
               label="Bekleyen Alacak (bayilerden)"
-              value={formatTL(data.overview?.pending.fromMarkets)}
+              value={formatTLShort(data.overview?.pending.fromMarkets)}
               icon={TrendingUp}
               color="amber"
               size="lg"
@@ -121,7 +118,7 @@ export function DashboardPage() {
             />
             <Kpi
               label="Bekleyen Borç (üreticilere)"
-              value={formatTL(data.overview?.pending.toProducers)}
+              value={formatTLShort(data.overview?.pending.toProducers)}
               icon={TrendingDown}
               color="red"
               size="lg"
@@ -151,7 +148,7 @@ export function DashboardPage() {
                   <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" fontSize={12} />
                   <Tooltip
                     contentStyle={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12 }}
-                    formatter={(v, n) => n === 'Ciro' ? formatTL(v) : formatNum(v, 1)}
+                    formatter={(v, n) => n === 'Ciro' ? formatTLShort(v) : formatNum(v, 1)}
                   />
                   <Legend />
                   <Line yAxisId="left" type="monotone" dataKey="weight" name="Ağırlık (kg)" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
@@ -182,11 +179,11 @@ export function DashboardPage() {
                 <ResponsiveContainer width="100%" height={280}>
                   <BarChart data={data.byMarket.map((m) => ({ name: m.market ? `#${m.market.no} ${m.market.name}` : '—', revenue: m.revenue }))} layout="vertical" margin={{ left: 80 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis type="number" stroke="#64748b" fontSize={12} tickFormatter={(v) => formatTL(v).replace('₺', '')} />
+                    <XAxis type="number" stroke="#64748b" fontSize={12} tickFormatter={(v) => formatTLShort(v).replace('₺', '')} />
                     <YAxis dataKey="name" type="category" stroke="#64748b" fontSize={11} width={120} />
                     <Tooltip
                       contentStyle={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: 12 }}
-                      formatter={(v) => formatTL(v)}
+                      formatter={(v) => formatTLShort(v)}
                     />
                     <Bar dataKey="revenue" name="Ciro" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                   </BarChart>

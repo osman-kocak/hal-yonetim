@@ -7,7 +7,7 @@ import {
 import { trackedCases } from '../utils/cases.js'
 import { isCountable, normalizeUnit, unitLabel } from '../utils/units.js'
 import { priceOf } from '../utils/prices.js'
-import { toPriceDate, startOfLocalDay, endOfLocalDay } from '../utils/date.js'
+import { toPriceDate, startOfLocalDay, endOfLocalDay, clampClientTime } from '../utils/date.js'
 import { parsePagination, paginated } from '../utils/pagination.js'
 
 // errorHandler err.status'ü okur — transaction içinden anlamlı HTTP kodu fırlatmak için
@@ -170,6 +170,13 @@ export async function removeEntryToDepo(req, res, next) {
           productId: entry.productId,
           producerId: entry.producerId,
           qualityId: entry.qualityId,
+          // Alış fiyatı snapshot'ı TAŞINIR: bölünen parçanın maliyeti raporda
+          // görünsün. purchaseQty TAŞINMAZ (null kalır) ve BORÇ YAZILMAZ —
+          // borç mal kabul anında doğdu ve orijinal Entry'ye bağlı; bölünme onu
+          // değiştirmiyor. Buraya qty yazılsaydı üretici mal kabul dökümü aynı
+          // malı iki kez sayardı. Bölünen parçanın izini Transfer kaydı taşıyor.
+          purchasePricePerKg: entry.purchasePricePerKg,
+          purchasePriceSource: entry.purchasePriceSource,
           caseCount: movedCases,
           weight: share,
           unit: entry.unit,
@@ -534,6 +541,10 @@ export async function createGroupedTransfer(req, res, next) {
               caseCount: takeCases,
               weight,
               unit: entry.unit, // snapshot taşınır, ürün sonradan değişse de sabit
+              // Alış fiyatı snapshot'ı da taşınır; purchaseQty TAŞINMAZ ve BORÇ
+              // YAZILMAZ — gerekçe kısmî aktarmadaki (aktarmaEntry) aynı blokta.
+              purchasePricePerKg: entry.purchasePricePerKg,
+              purchasePriceSource: entry.purchasePriceSource,
               weak: entry.weak,
               // Taşınmazsa siyah kasa işareti split'te kaybolur ve giden mal
               // hedef pazara kasa borcu yazdırır.
@@ -759,6 +770,12 @@ async function writeReturnRow(tx, p, { market, createdBy, occurredAt = new Date(
       regionSessionId: null,
       productId: p.product.id,
       qualityId: p.qualityId,
+      // producerId BİLEREK null — ÇİFT BORÇ KORUMASI.
+      // Mal üreticiden bir kez alındı ve borcu mal kabulde yazıldı
+      // (entryController.createEntryBatch). Bayiden iade gelince bu Entry
+      // yeniden açılıyor; producerId doldurulursa aynı mal için İKİNCİ bir
+      // PRODUCER_DEBT doğar ve üreticiye iki kez ödeme yapılır.
+      // Buraya üretici yazmak isteyen biri önce o borç yazımını okumalı.
       producerId: null,
       caseCount: p.c,
       weight: p.w,
@@ -874,15 +891,9 @@ export async function createReturnBatch(req, res, next) {
 
     // İadenin GERÇEK zamanı. Offline kuyrukta bekleyen kayıt saatler sonra
     // gönderilebiliyor; sync anını yazmak cari hesabı yanlış güne düşürür.
-    // İstemci saatine körü körüne güvenilmiyor: gelecekteki ya da 7 günden eski
-    // tarih reddedilip sunucu saatine düşülüyor.
-    const clientTime = occurredAt ? new Date(occurredAt) : null
-    const now = Date.now()
-    const gecerli = clientTime
-      && !Number.isNaN(clientTime.getTime())
-      && clientTime.getTime() <= now + 60_000
-      && clientTime.getTime() > now - 7 * 24 * 60 * 60 * 1000
-    const islemZamani = gecerli ? clientTime : new Date()
+    // Kural utils/date.js'e taşındı — mal kabul borcu da aynı clamp'i kullanıyor,
+    // iki kopya olsaydı biri güncellenip diğeri unutulurdu.
+    const islemZamani = clampClientTime(occurredAt)
 
     const ctx = await resolveReturnContext(fromMarketId)
     // Doğrulama transaction DIŞINDA: hata olursa hiç transaction açılmasın ve

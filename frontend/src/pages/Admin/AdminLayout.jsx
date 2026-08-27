@@ -3,13 +3,16 @@ import { useAuthStore } from '@/store/authStore'
 import { hasAnyRole } from '@/utils/roles'
 import { cn } from '@/utils/cn'
 import {
-  LayoutDashboard, MapPin, Package, Store, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert, ArrowLeft, Warehouse, WifiOff
-} from 'lucide-react'
+  LayoutDashboard, MapPin, Package, Store, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert, ArrowLeft, Warehouse, WifiOff, HandCoins } from 'lucide-react'
 
 const nav = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/admin/fiyatlar', label: 'Günlük Fiyatlar', icon: DollarSign },
   { to: '/admin/finans', label: 'Finans', icon: Wallet },
+  // ROL: ADMIN + ACCOUNTING. adminOnly KULLANILMADI — üreticiye ödeme yapmak
+  // muhasebecinin asıl işi, gizlemek ekranı işlevsiz kılar. Yıkıcı işlemler
+  // (ödeme silme, toplu yeniden hesaplama) ekran içinde ADMIN'e kısıtlı.
+  { to: '/admin/uretici-odeme', label: 'Üretici Ödeme', icon: HandCoins },
   { to: '/admin/takip', label: 'Takip & Geçmiş', icon: History },
   { to: '/admin/depo', label: 'Depo', icon: Warehouse },
   { to: '/admin/kasalar', label: 'Kasa Takip', icon: Boxes },

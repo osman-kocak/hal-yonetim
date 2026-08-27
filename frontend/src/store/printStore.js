@@ -2,10 +2,16 @@ import { create } from 'zustand'
 import { flushSync } from 'react-dom'
 import { generateIrsaliye } from '@/utils/pdfGenerator'
 
-// Yazdırılacak irsaliye. Host bileşen App seviyesinde durur (bkz. App.jsx).
+// Yazdırılacak belge. Host bileşenler App seviyesinde durur (bkz. App.jsx).
+//
+// İKİ SLOT, biri dolduğunda diğeri BOŞALIR: her ikisi de .print-root kökü
+// kullanıyor ve index.css yazdırmada `#root > *:not(.print-root)` dışındaki her
+// şeyi gizliyor. İkisi aynı anda dolu kalırsa tek çıktıya iki belge basılır.
 export const usePrintStore = create((set) => ({
   irsaliye: null,
-  setIrsaliye: (exit) => set({ irsaliye: exit }),
+  receipt: null,
+  setIrsaliye: (exit) => set({ irsaliye: exit, receipt: null }),
+  setReceipt: (r) => set({ receipt: r, irsaliye: null }),
 }))
 
 // iPadOS 13+ kendini "MacIntel" diye tanıtır; dokunma noktası sayısı ayırt eder.
@@ -40,4 +46,14 @@ export function printIrsaliye(exit) {
 export function openIrsaliyePdf(exit) {
   const win = window.open('', '_blank')
   generateIrsaliye(exit, win)
+}
+
+// Üreticiye ödeme makbuzu. printIrsaliye ile AYNI kural geçerli: araya await
+// girmemeli, doğrudan tıklama handler'ından çağrılmalı — iOS yazdırma iznini
+// yalnızca dokunuşun kendisinde veriyor.
+export function printReceipt(payload) {
+  flushSync(() => {
+    usePrintStore.getState().setReceipt(payload)
+  })
+  window.print()
 }

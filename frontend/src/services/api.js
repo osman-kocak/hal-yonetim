@@ -305,6 +305,49 @@ export const api = {
   getProducerLedgerBalances: () => unwrap(http.get('/admin/ledger/balances/producers')),
   getFinancialReport: (params) => unwrap(http.get('/admin/ledger/report', { params })),
 
+  // ——— Üretici Ödeme Paneli (ADMIN + ACCOUNTING) ———
+  //
+  // Bakiye listesi BİLEREK SAYFASIZ: üretici sayısı yüzlerle sınırlı. Tam liste
+  // tek seferde gelince toplu ödeme seçimi sayfalar arası tutarlı kalıyor,
+  // sıralama anında çalışıyor ve export fetchAllPages'e ihtiyaç duymuyor.
+  //
+  // balance KÜMÜLATİF (tarih filtresinden bağımsız), intakeTotal/paidTotal
+  // DÖNEMSELDİR. Bakiye de filtrelenseydi "bu ay 5.000 borç, 5.000 ödendi →
+  // bakiye 0" yanılgısı doğar, geçmiş devir gizlenirdi.
+  getProducerPaymentSummary: (params) => unwrap(http.get('/admin/producer-payments/summary', { params })),
+  getProducerPaymentBalances: (params) => unwrap(http.get('/admin/producer-payments/balances', { params })),
+
+  // Detay uçları SAYFALI ({ data, total, page, limit, hasMore })
+  getProducerStatement: (id, params) => unwrap(http.get(`/admin/producer-payments/${id}/statement`, { params })),
+  getProducerIntakes: (id, params) => unwrap(http.get(`/admin/producer-payments/${id}/intakes`, { params })),
+  getProducerPaymentHistory: (params) => unwrap(http.get('/admin/producer-payments/payments', { params })),
+
+  createProducerPayment: (id, data) => unwrap(http.post(`/admin/producer-payments/${id}/payment`, data)),
+  // Toplu ödeme TEK istek: N ayrı POST'ta 12 ödemenin 7'si yazılıp 5'i patlarsa
+  // muhasebede telafisi olmayan yarım kayıt kalır. Backend tek transaction.
+  createProducerPaymentBatch: (data) => unwrap(http.post('/admin/producer-payments/batch', data)),
+
+  // Alış fiyatı bulunamadığı için borcu yazılamayan mal kabuller
+  getUnpricedIntakes: (params) => unwrap(http.get('/admin/producer-payments/unpriced', { params })),
+  // Fiyat sonradan girilince bekleyen kayıtlara borç üretir. İDEMPOTENT:
+  // borcu zaten yazılmış kayda ikinci kez yazmaz. ADMIN'e kısıtlı.
+  recalcProducerDebts: (data) => unwrap(http.post('/admin/producer-payments/recalculate', data)),
+  // Üreticisiz mal kabule üretici ata → borcu doğar
+  assignEntryProducer: (id, producerId) => unwrap(http.patch(`/admin/entries/${id}/producer`, { producerId })),
+
+  // ——— Alış fiyatları (ADMIN + ACCOUNTING) ———
+  //
+  // Satış fiyatı gibi carry-forward: seçilen güne yazılmamış fiyat önceki
+  // günden devreder ve inherited:true ile döner.
+  getPurchasePrices: (date) => unwrap(http.get('/admin/purchase-prices', { params: { date } })),
+  upsertPurchasePrice: (data) => unwrap(http.post('/admin/purchase-prices', data)),
+  getProducerPrices: (producerId, date) =>
+    unwrap(http.get(`/admin/purchase-prices/producer/${producerId}`, { params: { date } })),
+  upsertProducerPrice: (data) => unwrap(http.post('/admin/purchase-prices/producer', data)),
+  // Kaldırma DELETE değil: cancelled=true mezar taşı bırakılıyor, yoksa
+  // carry-forward bir önceki fiyatı diriltir.
+  cancelProducerPrice: (id, date) => unwrap(http.post(`/admin/purchase-prices/producer/${id}/cancel`, { date })),
+
   // Case Movements (Admin Kasa Takip) — /admin (ADMIN + ACCOUNTING)
   // createAdminCaseMovement, kasacının createCaseMovement'ından AYRI olmalı:
   // rotalar farklı role gerektiriyor (admin rotasında ACCOUNTING var, kasacı rotasında yok).

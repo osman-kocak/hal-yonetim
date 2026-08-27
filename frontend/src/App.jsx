@@ -14,6 +14,7 @@ import { MarketsPage } from '@/pages/Admin/MarketsPage'
 import { QualitiesPage } from '@/pages/Admin/QualitiesPage'
 import { ReportsPage } from '@/pages/Admin/ReportsPage'
 import { PricesPage } from '@/pages/Admin/PricesPage'
+import { ProducerPaymentsPage } from '@/pages/Admin/ProducerPayments/ProducerPaymentsPage'
 import { HistoryPage } from '@/pages/Admin/HistoryPage'
 import { CaseTrackingPage } from '@/pages/Admin/CaseTrackingPage'
 import { DepoPage as AdminDepoPage } from '@/pages/Admin/DepoPage'
@@ -35,6 +36,7 @@ import { ProtectedRoute, PublicOnlyRoute } from '@/components/ProtectedRoute'
 import { WatermarkedLayout } from '@/components/ScreenWatermark'
 import { ToastProvider } from '@/components/ui/Toast'
 import { IrsaliyePrintHost } from '@/components/IrsaliyePrint'
+import { PaymentReceiptPrintHost } from '@/components/PaymentReceiptPrint'
 import { OfflineBanner } from '@/components/OfflineBanner'
 import { startConnectionMonitor } from '@/store/connectionStore'
 import { startQueueSync } from '@/lib/syncQueue'
@@ -112,6 +114,7 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'fiyatlar', element: <PricesPage /> },
       { path: 'finans', element: <FinancePage /> },
+      { path: 'uretici-odeme', element: <ProducerPaymentsPage /> },
       { path: 'takip', element: <HistoryPage /> },
       { path: 'depo', element: <AdminDepoPage /> },
       { path: 'kasalar', element: <CaseTrackingPage /> },
@@ -158,6 +161,10 @@ export default function App() {
       <ToastProvider />
       {/* Router dışında: irsaliye kesip /cikis'e dönerken yazdırma ekranı kapanmasın */}
       <IrsaliyePrintHost />
+      {/* Makbuz host'u da router DIŞINDA: yazdırma sayfa değişiminden bağımsız
+          olmalı ve printStore iki slotu birbirini null'layarak tek belge garantisi
+          veriyor (bkz. store/printStore.js). */}
+      <PaymentReceiptPrintHost />
     </>
   )
 }

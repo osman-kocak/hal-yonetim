@@ -1,25 +1,32 @@
 import { prisma } from '../utils/prismaClient.js'
 import { auditCreate, auditUpdate, auditDelete } from '../utils/audit.js'
 import { trackedCases } from '../utils/cases.js'
-import { isCountable, unitLabel } from '../utils/units.js'
+import { isCountable, unitLabel, formatQty } from '../utils/units.js'
 import { DISCARD_NO, findDepoMarket } from '../utils/markets.js'
+import { round2 } from '../utils/money.js'
+import { purchasePriceOf } from '../utils/purchasePrices.js'
+import { getPurchasePriceMap } from './purchasePriceController.js'
+import { clampClientTime, toPriceDate } from '../utils/date.js'
 
 // Üretici bu oturumda kullanılabilir mi? Hata mesajı döner, uygunsa null.
 // Arayüz zaten bölgenin listesini gösteriyor; bu, sınırdaki savunma:
 // yanlış eşleşen giriş bölge raporlarına sessizce yanlış yazılırdı.
+// { error, producer } döner. producer'ı da geri veriyor çünkü alış primi
+// (pricePremiumPct) borç hesabı için hemen lazım — ikinci bir sorgu açmaya
+// gerek kalmasın.
 async function validateProducerForSession(producerId, session) {
   const producer = await prisma.producer.findUnique({
     where: { id: Number(producerId) },
-    select: { active: true, regionId: true, allRegions: true },
+    select: { id: true, name: true, active: true, regionId: true, allRegions: true, pricePremiumPct: true },
   })
-  if (!producer) return 'Üretici bulunamadı'
-  if (!producer.active) return 'Pasif üreticiye giriş yapılamaz'
+  if (!producer) return { error: 'Üretici bulunamadı' }
+  if (!producer.active) return { error: 'Pasif üreticiye giriş yapılamaz' }
   // allRegions üreticisi her bölgede geçerli.
   // regionId null olan üretici hiçbir bölge listesinde çıkmaz → giriş de yapılamaz.
   if (!producer.allRegions && producer.regionId !== session.regionId) {
-    return 'Bu üretici seçilen bölgeye ait değil'
+    return { error: 'Bu üretici seçilen bölgeye ait değil' }
   }
-  return null
+  return { error: null, producer }
 }
 
 // Offline mal kabul için oturum çözümü.
@@ -62,9 +69,16 @@ function describeEntry(e) {
 async function entrySummary(id) {
   const e = await prisma.entry.findUnique({
     where: { id },
-    include: { product: true, market: true },
+    include: { product: true, market: true, producer: true, ledgerEntry: true },
   })
-  return e ? describeEntry(e) : `Giriş #${id}`
+  if (!e) return `Giriş #${id}`
+  // Silinen giriş üretici borcunu da götürüyor (LedgerEntry.entryId Cascade).
+  // "Ne kadar borç silindi" sorusunun cevabı kayıt gittikten sonra yalnızca
+  // burada kalıyor — tutar özete yazılmazsa geri izlenemez.
+  const debt = e.ledgerEntry
+    ? ` · üretici borcu ${e.ledgerEntry.amount} TL düştü (${e.producer?.name ?? 'üretici'})`
+    : ''
+  return `${describeEntry(e)}${debt}`
 }
 
 // Entry sil: exit edilmemişse OK.
@@ -210,6 +224,45 @@ export async function updateEntry(req, res, next) {
           data: { qty: trackedCases(row) },
         })
       }
+
+      // ÜRETİCİ BORCU SENKRONU. Kilo düzeltildiyse borç da düzelmeli; yoksa
+      // "40 kg yazmışım, 35'ti" düzeltmesi stoku düzeltir ama borcu 40 kg
+      // üzerinden bırakır ve üretici fazla para alır.
+      //
+      // FİYAT KAYDIN KENDİ SNAPSHOT'INDAN okunur, BUGÜNKÜ tablodan DEĞİL.
+      // Düzeltme fiyatı da güncelleseydi üç gün önceki bir girişin tutarı, kasa
+      // adedi düzeltilirken sessizce değişirdi — exitController.updateExit'teki
+      // lockedPrices ile birebir aynı gerekçe.
+      const snapPrice = entry.purchasePricePerKg
+      if (entry.producerId && snapPrice != null) {
+        const existingDebt = await tx.ledgerEntry.findUnique({ where: { entryId: id } })
+        const amount = round2(snapPrice * newWeight)
+        if (amount > 0) {
+          if (existingDebt) {
+            await tx.ledgerEntry.update({ where: { entryId: id }, data: { amount } })
+          } else {
+            // Snapshot var ama borç yok → backfill'den kalmış ya da borç elle
+            // silinmiş. Düzeltme sırasında borcu doğurmak doğru davranış:
+            // fiyatı bilinen bir mal kabulün karşılığı olmalı.
+            await tx.ledgerEntry.create({
+              data: {
+                type: 'PRODUCER_DEBT',
+                amount,
+                producerId: entry.producerId,
+                entryId: id,
+                occurredAt: entry.createdAt,
+                createdBy: req.user?.name || req.user?.username || 'Sistem',
+                note: `Mal kabul #${id} · düzeltme ile oluştu`,
+              },
+            })
+          }
+        } else if (existingDebt) {
+          await tx.ledgerEntry.delete({ where: { entryId: id } })
+        }
+        // Dökümdeki "alınan miktar" bu kolondan okunuyor — düzeltme onu da
+        // taşımalı, yoksa "35 kg alındı · 40 kg'lık borç" çelişkisi çıkar.
+        await tx.entry.update({ where: { id }, data: { purchaseQty: newWeight } })
+      }
       return row
     })
 
@@ -262,23 +315,73 @@ export async function createManualDepoEntry(req, res, next) {
       }
     }
 
-    const entry = await prisma.entry.create({
-      data: {
-        regionSessionId: null, // ofis girişi — bölge oturumuna bağlı değil
-        productId: product.id,
-        producerId: producerId ? Number(producerId) : null,
-        qualityId: qualityId ? Number(qualityId) : null,
-        caseCount: c,
-        weight: w,
-        unit: product.unit,
-        weak: Boolean(weak),
-        disposableCase: Boolean(disposableCase),
-        bQuality: Boolean(bQuality),
-        source: 'HARVEST', // mal girişi — iade/imha değil
-        marketId: depo.id,
-        createdBy: req.user?.name || req.user?.username || 'Admin',
-      },
-      include: { product: true, quality: true, producer: true, market: true },
+    // Alış fiyatı çözümü — saha akışıyla aynı kural, tek fark: bölge oturumu
+    // olmadığı için prim ayrı sorguyla okunuyor.
+    //
+    // occurredAt kabul ediliyor: ofis girişi çoğu zaman GEÇMİŞE dönük bir
+    // düzeltmedir (atlanmış mal kabul, sayım farkı) ve borç o güne, o günün
+    // fiyatıyla yazılmalı. 90 günlük pencere — saha akışındaki 7 gün burada
+    // dar kalır, bu uç zaten ADMIN/ACCOUNTING'e kapalı.
+    const ledgerAt = clampClientTime(req.body.occurredAt, { maxPastMs: 90 * 24 * 60 * 60 * 1000 })
+    const prid = producerId ? Number(producerId) : null
+    let purchase = { pricePerKg: null, source: null, premiumPct: null }
+    if (prid) {
+      const prod = await prisma.producer.findUnique({
+        where: { id: prid },
+        select: { pricePremiumPct: true },
+      })
+      if (!prod) return res.status(404).json({ error: 'Üretici bulunamadı' })
+      const map = await getPurchasePriceMap(toPriceDate(ledgerAt), [prid])
+      purchase = purchasePriceOf(map, { productId: product.id, producerId: prid, premiumPct: prod.pricePremiumPct ?? 0 })
+    }
+
+    // TRANSACTION ŞART (eskiden düz create idi): artık para yazıyor. Entry
+    // yazılıp borç yazılamazsa üretici parasını alamaz ve kimse fark etmez.
+    const entry = await prisma.$transaction(async (tx) => {
+      const row = await tx.entry.create({
+        data: {
+          regionSessionId: null, // ofis girişi — bölge oturumuna bağlı değil
+          productId: product.id,
+          producerId: prid,
+          qualityId: qualityId ? Number(qualityId) : null,
+          caseCount: c,
+          weight: w,
+          unit: product.unit,
+          weak: Boolean(weak),
+          disposableCase: Boolean(disposableCase),
+          bQuality: Boolean(bQuality),
+          source: 'HARVEST', // mal girişi — iade/imha değil
+          marketId: depo.id,
+          createdBy: req.user?.name || req.user?.username || 'Admin',
+          purchasePricePerKg: purchase.pricePerKg,
+          purchasePriceSource: purchase.source,
+          purchaseQty: w,
+        },
+        include: { product: true, quality: true, producer: true, market: true },
+      })
+
+      // Saha akışıyla aynı kurallar: fiyat yoksa borç yok (0 değil), üretici
+      // yoksa borç yok. Gerekçeler createEntryBatch'te yazılı.
+      if (prid && purchase.pricePerKg != null) {
+        const amount = round2(purchase.pricePerKg * w)
+        if (amount > 0) {
+          await tx.ledgerEntry.create({
+            data: {
+              type: 'PRODUCER_DEBT',
+              amount,
+              producerId: prid,
+              entryId: row.id,
+              occurredAt: ledgerAt,
+              createdBy: req.user?.name || req.user?.username || 'Admin',
+              note: `Elle depo girişi #${row.id} · ${product.name} · `
+                + `${formatQty(w, product.unit)} × ${purchase.pricePerKg} TL`
+                + (purchase.source === 'PRODUCER_PREMIUM' ? ` (prim %${purchase.premiumPct})` : '')
+                + (purchase.source === 'PRODUCER_SPECIAL' ? ' (özel fiyat)' : ''),
+            },
+          })
+        }
+      }
+      return row
     })
 
     auditCreate(req, 'entry', entry.id, `Elle depo girişi · ${describeEntry(entry)}`)
@@ -361,9 +464,11 @@ export async function createEntryBatch(req, res, next) {
       }
     }
 
+    let producer = null
     if (producerId) {
-      const err = await validateProducerForSession(producerId, session)
-      if (err) return res.status(400).json({ error: err })
+      const check = await validateProducerForSession(producerId, session)
+      if (check.error) return res.status(400).json({ error: check.error })
+      producer = check.producer
     }
 
     // Birim ürünün güncel ayarından okunur ve Entry'ye snapshot yazılır.
@@ -418,6 +523,29 @@ export async function createEntryBatch(req, res, next) {
       marketRows.filter((m) => m.no === DISCARD_NO).map((m) => m.id)
     )
 
+    // ——— ÜRETİCİ BORCU: alış fiyatı çözümü ———
+    //
+    // Cari hesabın GERÇEK zamanı. Offline kuyrukta bekleyen parti saatler sonra
+    // gönderilebiliyor; sync anını yazmak borcu yanlış güne düşürür VE o günün
+    // alış fiyatıyla hesaplar. İade akışı bu dersi zaten öğrendi.
+    // Entry.createdAt'e DOKUNULMUYOR — o yazım anıdır ve tüm raporlar ona bağlı.
+    const ledgerAt = clampClientTime(req.body.occurredAt)
+
+    // Fiyat transaction DIŞINDA çözülüyor (exitController.createExit ile aynı
+    // gerekçe): transaction içinde sorgu açmak kilit süresini uzatır ve mal
+    // kabul saha akışının en sıcak noktası.
+    //
+    // Parti tek ürün + tek üretici olduğu için TEK çözüm tüm satırlara uygulanır.
+    const purchaseMap = await getPurchasePriceMap(
+      toPriceDate(ledgerAt),
+      producerId ? [Number(producerId)] : [],
+    )
+    const purchase = purchasePriceOf(purchaseMap, {
+      productId: Number(productId),
+      producerId: producerId ? Number(producerId) : null,
+      premiumPct: producer?.pricePremiumPct ?? 0,
+    })
+
     // $transaction kalır: çok satır, all-or-nothing olmalı
     const created = await prisma.$transaction(async (tx) => {
       // İLK ADIM idempotency kaydı: PK ihlali burada patlarsa hiçbir satır
@@ -451,8 +579,53 @@ export async function createEntryBatch(req, res, next) {
             source: discardMarketIds.has(Number(e.marketId)) ? 'DISCARD' : 'HARVEST',
             marketId: Number(e.marketId),
             createdBy,
+            // Alış SNAPSHOT'ı — ExitItem.pricePerKg ile aynı gerekçe: alış
+            // fiyatı sonradan değişse de bu satırın maliyeti sabit kalır.
+            purchasePricePerKg: purchase.pricePerKg,
+            purchasePriceSource: purchase.source,
+            // Mal kabul anındaki miktar. weight sonradan depo transferinde
+            // yeniden tartılıp DEĞİŞEBİLİYOR — borç oradan türetilemez.
+            purchaseQty: Number(e.weight),
           },
         })
+
+        // ÜRETİCİ BORCU — mal kabul anında doğar (2026-08-26 kararı: iş modeli
+        // alım-satım/tüccarlık, komisyonculuk değil; mal üreticiden AYRI bir
+        // alış fiyatıyla alınıyor ve bayiye kesilen irsaliye fiyatından
+        // tamamen bağımsız).
+        //
+        // FİLTRE YOK — bilinçli: 99 ATILAN'a giden, weak işaretli ve siyah
+        // kasadaki mal da borç yazar ("fire de ödenir" kararı). source/weak/
+        // disposableCase'e bakan bir koşul eklenirse üretici malının bir
+        // kısmının parasını alamaz.
+        //
+        // FİYAT YOKSA BORÇ YAZILMAZ, 0 yazılmaz: sıfır "bedava aldık" demek,
+        // bulunamamak "muhasebeci girmedi" demek (utils/prices.js:23-24).
+        // Bu satırlar fiyatsız-mal-kabul uyarı listesinde birikir.
+        //
+        // ÜRETİCİ YOKSA BORÇ YAZILMAZ: kime borçlu olduğumuz belli değil.
+        // Üretici sonradan atanınca borç doğar (PATCH /admin/entries/:id/producer).
+        if (producerId && purchase.pricePerKg != null) {
+          const amount = round2(purchase.pricePerKg * Number(e.weight))
+          if (amount > 0) {
+            await tx.ledgerEntry.create({
+              data: {
+                type: 'PRODUCER_DEBT',
+                amount,
+                producerId: Number(producerId),
+                // entryId @unique + Cascade: aynı girişe ikinci borç fiziksel
+                // olarak imkânsız, giriş silinirse borç da düşer.
+                entryId: entry.id,
+                occurredAt: ledgerAt,
+                createdBy,
+                note: `Mal kabul #${entry.id} · ${product.name} · `
+                  + `${formatQty(e.weight, product.unit)} × ${purchase.pricePerKg} TL`
+                  + (purchase.source === 'PRODUCER_PREMIUM' ? ` (prim %${purchase.premiumPct})` : '')
+                  + (purchase.source === 'PRODUCER_SPECIAL' ? ' (özel fiyat)' : ''),
+              },
+            })
+          }
+        }
         // Mal geldi = bölgeye verilen kasa döndü. Giriş başına tek hareket:
         // entryId unique + cascade, böylece giriş silinince düşüm de kalkar.
         // Siyah/karton kasada gelen mal için hareket HİÇ yazılmaz — o kasa

@@ -75,7 +75,10 @@ export async function me(req, res, next) {
 // --- FIELD WHITELISTS (mass-assignment protection) ---
 const ALLOWED_FIELDS = {
   region:   ['name', 'active'],
-  producer: ['name', 'regionId', 'allRegions', 'active'],
+  // pricePremiumPct: genel ALIŞ fiyatına uygulanan yüzde prim/iskonto.
+  // Doğrudan üreticiye yazılan borcu değiştirir — VALIDATORS.producer'da
+  // sınırlanıyor ve değişikliği audit'e düşüyor.
+  producer: ['name', 'regionId', 'allRegions', 'active', 'pricePremiumPct'],
   // unit: 'CASE' | 'BUNCH' | 'PIECE' — miktar her birimde weight'te durur
   // (kg / bağ / adet), fiyat da o birimin fiyatıdır (bkz. utils/units.js).
   // Kasa hesabı birimden bağımsız işler (bkz. utils/cases.js).
@@ -100,6 +103,24 @@ function pick(obj, fields) {
 // Alan bazlı ek doğrulamalar. Whitelist mass-assignment'ı kesiyor ama değerin
 // kendisini kontrol etmiyor: geçersiz enum Prisma'da generic 500'e düşüyordu.
 const VALIDATORS = {
+  producer(data) {
+    if ('pricePremiumPct' in data) {
+      const raw = data.pricePremiumPct
+      // Boş string / null → prim yok. 0 GEÇERLİ bir değer, null'a düşürülmez.
+      if (raw === '' || raw === null || raw === undefined) {
+        data.pricePremiumPct = 0
+        return null
+      }
+      const v = Number(raw)
+      // -100 "mal bedava" demek; üst sınır yazım hatası kalkanı — %500 girmek
+      // istenmiş olamaz, virgül kaymıştır ve o hata doğrudan paraya yansır.
+      if (!Number.isFinite(v) || v <= -100 || v > 100) {
+        return 'Prim/iskonto -100 ile 100 arasında bir yüzde olmalı'
+      }
+      data.pricePremiumPct = v
+    }
+    return null
+  },
   product(data) {
     if ('unit' in data && !UNITS.includes(data.unit)) {
       return 'Birim CASE (kilo), BUNCH (bağ) veya PIECE (adet) olmalı'
@@ -137,10 +158,23 @@ function crudFor(model, orderBy = { id: 'asc' }) {
         const data = pick(req.body, fields)
         const invalid = validate?.(data)
         if (invalid) return res.status(400).json({ error: invalid })
-        const record = await prisma[model].update({
-          where: { id: Number(req.params.id) },
-          data,
-        })
+        const id = Number(req.params.id)
+        // Üreticinin prim yüzdesi doğrudan borcu değiştiriyor (fiyat girişiyle
+        // aynı ağırlıkta): eski değerle birlikte izlenebilir olmalı. Diğer
+        // modellerde update audit'i yok, buraya da genel audit eklenmedi —
+        // yalnız para etkileyen alan izleniyor.
+        const before = model === 'producer' && 'pricePremiumPct' in data
+          ? await prisma.producer.findUnique({ where: { id }, select: { name: true, pricePremiumPct: true } })
+          : null
+        const record = await prisma[model].update({ where: { id }, data })
+        if (before && before.pricePremiumPct !== record.pricePremiumPct) {
+          audit(req, {
+            action: 'UPDATE',
+            resource: 'producer',
+            recordId: id,
+            detail: `${record.name} · alış primi %${before.pricePremiumPct} → %${record.pricePremiumPct}`,
+          })
+        }
         res.json(record)
       } catch (err) { next(err) }
     },

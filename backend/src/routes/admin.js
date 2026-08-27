@@ -21,6 +21,17 @@ import {
 } from '../controllers/analyticsController.js'
 import { dailyReport, byMarketReport, byProductReport, topProducts, fireReport } from '../controllers/reportController.js'
 import { getPrices, upsertPrice } from '../controllers/priceController.js'
+import {
+  getPurchasePrices, upsertPurchasePrice,
+  getProducerPrices, upsertProducerPrice, cancelProducerPrice,
+} from '../controllers/purchasePriceController.js'
+import {
+  balances as producerBalancesRich, summary as producerPaymentSummary,
+  statement as producerStatement, intakes as producerIntakes,
+  createPayment as createProducerPayment, createPaymentBatch as createProducerPaymentBatch,
+  listPayments as listProducerPayments, unpriced as unpricedIntakes,
+  recalculate as recalcProducerDebts, assignProducer as assignEntryProducer,
+} from '../controllers/producerPaymentController.js'
 import { logExport, listAuditLogs } from '../controllers/auditController.js'
 import { listOutages } from '../controllers/outageController.js'
 import { getExitHistory, getEntryHistory } from '../controllers/historyController.js'
@@ -96,9 +107,42 @@ router.post('/users', userCrud.create)
 router.put('/users/:id', userCrud.update)
 router.delete('/users/:id', userCrud.remove)
 
-// Prices
+// Prices — SATIŞ fiyatı (bayiye kesilen irsaliye)
 router.get('/prices', getPrices)
 router.post('/prices', upsertPrice)
+
+// ——— Üretici Ödeme Paneli ———
+//
+// ROL: ADMIN + ACCOUNTING (router seviyesinde zaten böyle). adminOnly YAPILMADI
+// — üreticiye ödeme yapmak muhasebecinin ASIL işi, gizlemek ekranı işlevsiz
+// kılar. Ama YIKICI iki işlem ADMIN'e kısıtlı: toplu yeniden hesaplama para
+// yazıyor, geri alması elle temizlik gerektirir.
+router.get('/producer-payments/summary', producerPaymentSummary)
+router.get('/producer-payments/balances', producerBalancesRich)
+router.get('/producer-payments/payments', listProducerPayments)
+router.get('/producer-payments/unpriced', unpricedIntakes)
+router.post('/producer-payments/recalculate', requireRole('ADMIN'), recalcProducerDebts)
+// Toplu ödeme TEK uç: frontend'de N ayrı POST atılırsa 12 ödemenin 7'si yazılıp
+// 5'i patladığında telafisi olmayan yarım kayıt kalır. Tek transaction şart.
+router.post('/producer-payments/batch', createProducerPaymentBatch)
+router.get('/producer-payments/:id/statement', producerStatement)
+router.get('/producer-payments/:id/intakes', producerIntakes)
+router.post('/producer-payments/:id/payment', createProducerPayment)
+// Üreticisiz mal kabule üretici ata → borcu doğur
+router.patch('/entries/:id/producer', assignEntryProducer)
+
+// Purchase prices — ALIŞ fiyatı (üreticiye ödenen). Satış fiyatından bağımsız.
+//
+// YALNIZ /api/admin ALTINDA: alış fiyatı ticari sır, saha rollerinin işi değil.
+// /api/public veya /api/entry'ye karşılığı EKLENMEZ — operatörün alış fiyatını
+// görmesine gerek yok, fiyatı o giremez. (Aynı gerekçe: middleware/purchaseGuard.js)
+router.get('/purchase-prices', getPurchasePrices)
+router.post('/purchase-prices', upsertPurchasePrice)
+router.get('/purchase-prices/producer/:producerId', getProducerPrices)
+router.post('/purchase-prices/producer', upsertProducerPrice)
+// Kaldırma DELETE değil POST /cancel: satır silinmiyor, cancelled=true mezar
+// taşı bırakılıyor — yoksa carry-forward bir önceki fiyatı diriltir.
+router.post('/purchase-prices/producer/:id/cancel', cancelProducerPrice)
 
 // History / Takip
 router.get('/history/exits', getExitHistory)
@@ -113,6 +157,7 @@ router.get('/transfers', listTransfers)
 // DEPO+ADMIN'e açık, ACCOUNTING oraya erişemiyor).
 router.get('/depo/entries', listDepoEntries)
 router.post('/depo/entry', createManualDepoEntry)
+
 
 // Finansal cari hesap
 router.get('/ledger', listLedger)

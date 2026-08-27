@@ -36,28 +36,53 @@ enum ProductUnit {
 }
 
 enum EntrySource {
-  HARVEST   // Normal mal kabul (bölge oturumundan)
-  RETURN    // Bayiden iade — depoya veya doğrudan başka pazara
-  DISCARD   // İmha — 99 ATILAN pazarına yazılır
+  HARVEST // Normal mal kabul (bölge oturumundan)
+  RETURN // Bayiden iade — depoya veya doğrudan başka pazara
+  DISCARD // İmha — 99 ATILAN pazarına yazılır
 }
 
 enum LedgerEntryType {
-  MARKET_INVOICE       // İrsaliye → bayi borcu (otomatik, Exit ile)
-  MARKET_PAYMENT       // Tahsilat (manuel)
-  MARKET_ADJUSTMENT    // Bayi düzeltme (signed)
-  PRODUCER_DEBT        // Üreticiye borç (manuel)
-  PRODUCER_PAYMENT     // Üreticiye ödeme (manuel)
-  PRODUCER_ADJUSTMENT  // Üretici düzeltme (signed)
+  MARKET_INVOICE // İrsaliye → bayi borcu (otomatik, Exit ile)
+  MARKET_PAYMENT // Tahsilat (manuel)
+  MARKET_ADJUSTMENT // Bayi düzeltme (signed)
+  // Üreticiye borç. OTOMATİK: mal kabul kaydedilince yazılır (entryId dolu,
+  // bkz. entryController.createEntryBatch). Elle de girilebilir (entryId null):
+  // açılış devri, sistem dışı alım. Ayrım entryId'de — ayrı kolon gerekmiyor.
+  PRODUCER_DEBT
+  PRODUCER_PAYMENT // Üreticiye ödeme (manuel)
+  PRODUCER_ADJUSTMENT // Üretici düzeltme (signed)
+}
+
+// Alış fiyatının HANGİ KATMANDAN geldiği. Kayıtta durması şart: aynı üreticiye
+// aynı gün iki farklı fiyat uygulanmış görünüyorsa cevabı yalnızca bu kolon verir.
+// Serbest metin DEĞİL çünkü raporlar buna göre gruplayacak; 'GENEL'/'genel'/
+// 'GENERAL' kayması gruplamayı sessizce böler.
+// Tek üretim noktası: utils/purchasePrices.js → purchasePriceOf()
+enum PurchasePriceSource {
+  GENERAL // Genel alış fiyatı, sapma yok
+  PRODUCER_PREMIUM // Genel fiyat × (1 + prim%)
+  PRODUCER_SPECIAL // Üretici+ürün özel fiyatı — prim UYGULANMADI
+}
+
+// Ödemenin nasıl yapıldığı. Yalnızca *_PAYMENT tiplerinde dolar; DB'de CHECK
+// constraint aynısını zorluyor (bkz. 20260826120000_producer_payment).
+// Enum çünkü küme kapalı ve muhasebenin ilk isteyeceği rapor "bugün kasadan ne
+// çıktı, ne havale gitti" — serbest metinde Nakit/nakit/NAKİT dört ayrı kova
+// üretir ve rapor sessizce eksik toplar.
+enum PaymentMethod {
+  CASH // Nakit
+  TRANSFER // Havale / EFT
+  CHECK // Çek
 }
 
 enum CaseMovementType {
-  MARKET_OUT      // Bayiye gönderildi (otomatik, Exit ile)
-  MARKET_IN       // Bayiden iade alındı (manuel)
-  MARKET_INIT     // Bayi başlangıç bakiyesi
-  MARKET_ADJUST   // Bayi düzeltme (qty signed olabilir)
-  REGION_OUT      // Bölgeye boş kasa verildi — bahçeden mal toplasın diye (manuel)
-  REGION_IN       // Bölgeden kasa döndü (otomatik, mal kabul Entry'si ile)
-  REGION_ADJUST   // Bölge düzeltme (qty signed olabilir)
+  MARKET_OUT // Bayiye gönderildi (otomatik, Exit ile)
+  MARKET_IN // Bayiden iade alındı (manuel)
+  MARKET_INIT // Bayi başlangıç bakiyesi
+  MARKET_ADJUST // Bayi düzeltme (qty signed olabilir)
+  REGION_OUT // Bölgeye boş kasa verildi — bahçeden mal toplasın diye (manuel)
+  REGION_IN // Bölgeden kasa döndü (otomatik, mal kabul Entry'si ile)
+  REGION_ADJUST // Bölge düzeltme (qty signed olabilir)
 }
 
 // Üreticilerin bağlı olduğu coğrafi bölge. Mal kabul ekranı bölgeye göre filtreler.
@@ -74,15 +99,27 @@ model Region {
 }
 
 model Producer {
-  id            Int            @id @default(autoincrement())
-  name          String
-  active        Boolean        @default(true)
-  region        Region?        @relation(fields: [regionId], references: [id], onDelete: SetNull)
-  regionId      Int?
-  allRegions    Boolean        @default(false) // true → bölge seçiminden bağımsız, her bölgenin listesinde görünür
-  entries       Entry[]
-  ledgerEntries LedgerEntry[]
-  createdAt     DateTime       @default(now())
+  id              Int             @id @default(autoincrement())
+  name            String
+  active          Boolean         @default(true)
+  region          Region?         @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  regionId        Int?
+  allRegions      Boolean         @default(false) // true → bölge seçiminden bağımsız, her bölgenin listesinde görünür
+  // GENEL alış fiyatına uygulanan yüzde prim/iskonto: +5 → %5 fazla öde,
+  // -3 → %3 az öde, 0 → sapma yok. "Bu üreticinin malı hep bir tık iyi/kötü"
+  // gerçeğini tek yerde tutar; her gün her ürün için özel fiyat girmeye gerek
+  // kalmaz.
+  //
+  // NULLABLE DEĞİL: null ve 0 aynı anlama gelirdi ("sapma yok") ve iki temsil
+  // tutmak her okuma noktasında ?? 0 gerektirir.
+  //
+  // ÜRÜN BAZLI ÖZEL FİYAT (ProducerPrice) VARSA UYGULANMAZ — özel fiyat nihaidir.
+  // Gerekçe utils/purchasePrices.js başlığında.
+  pricePremiumPct Float           @default(0)
+  entries         Entry[]
+  ledgerEntries   LedgerEntry[]
+  purchasePrices  ProducerPrice[]
+  createdAt       DateTime        @default(now())
 
   @@index([regionId])
   @@index([active])
@@ -99,28 +136,30 @@ model RegionSession {
   // açılan oturum saatler sonra sync edilebildiği için ikisi ayrışıyor.
   openedAt  DateTime?
   createdAt DateTime      @default(now())
-
-  @@index([regionId, status])
   // Bölge başına TEK açık oturum. Partial unique index migration'da:
   //   UNIQUE (regionId) WHERE status = 'ACTIVE'
   // Prisma şemasında koşullu index ifade edilemiyor, bu yüzden burada yalnızca
   // yorum olarak duruyor — kural veritabanında zorlanıyor. Offline sync'te iki
   // cihaz aynı bölgeyi aynı anda açabildiği için uygulama katmanı yetmiyordu.
+
+  @@index([regionId, status])
 }
 
 model Product {
-  id        Int     @id @default(autoincrement())
-  name      String  @unique
-  icon      String? // Emoji veya kısa metin (örn. 🍅, 🍎)
-  groupName String? // Ana ürün / grup adı (örn. "Portakal"). null → tekil/ana ürün. Giriş ekranı buna göre gruplar.
+  id             Int             @id @default(autoincrement())
+  name           String          @unique
+  icon           String? // Emoji veya kısa metin (örn. 🍅, 🍎)
+  groupName      String? // Ana ürün / grup adı (örn. "Portakal"). null → tekil/ana ürün. Giriş ekranı buna göre gruplar.
   // Satış birimi. Miktar her birimde weight kolonunda durur (kg / bağ / adet) ve
   // Price.pricePerKg o birimin fiyatıdır (₺/kg, ₺/bağ, ₺/adet). Fatura formülü
   // (pricePerKg * weight) üç birimde de aynı kalır — bu yüzden fiyat/irsaliye
   // kodu birime bakmıyor. Kasa sayımı birimden bağımsız: bkz. utils/cases.js
-  unit      ProductUnit @default(CASE)
-  entries   Entry[]
-  prices    Price[]
-  returns   ReturnRecord[]
+  unit           ProductUnit     @default(CASE)
+  entries        Entry[]
+  prices         Price[] // SATIŞ fiyatı (bayiye kesilen irsaliye)
+  purchasePrices PurchasePrice[] // ALIŞ fiyatı (üreticiye ödenen) — Price'tan bağımsız
+  producerPrices ProducerPrice[] // üretici bazlı özel alış fiyatı
+  returns        ReturnRecord[]
 
   @@index([groupName])
 }
@@ -174,30 +213,30 @@ model ExitLock {
 }
 
 model Entry {
-  id              Int            @id @default(autoincrement())
-  returnRecord    ReturnRecord?
-  caseMovement    CaseMovement?
+  id                  Int                  @id @default(autoincrement())
+  returnRecord        ReturnRecord?
+  caseMovement        CaseMovement?
   // nullable KALMALI — iade entry'lerinin oturumu yok (bkz. transferController)
-  regionSession   RegionSession? @relation(fields: [regionSessionId], references: [id], onDelete: SetNull)
-  regionSessionId Int?
-  product         Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
-  productId       Int
-  producer        Producer?      @relation(fields: [producerId], references: [id], onDelete: Restrict)
-  producerId      Int?
-  quality         Quality?       @relation(fields: [qualityId], references: [id], onDelete: Restrict)
-  qualityId       Int?
-  caseCount       Int            // Fiziksel kasa adedi — birimden bağımsız, her üründe sayılır
-  weight          Float          // Miktar ekseni: CASE kilo · BUNCH bağ · PIECE adet
+  regionSession       RegionSession?       @relation(fields: [regionSessionId], references: [id], onDelete: SetNull)
+  regionSessionId     Int?
+  product             Product              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productId           Int
+  producer            Producer?            @relation(fields: [producerId], references: [id], onDelete: Restrict)
+  producerId          Int?
+  quality             Quality?             @relation(fields: [qualityId], references: [id], onDelete: Restrict)
+  qualityId           Int?
+  caseCount           Int // Fiziksel kasa adedi — birimden bağımsız, her üründe sayılır
+  weight              Float // Miktar ekseni: CASE kilo · BUNCH bağ · PIECE adet
   // Kayıt anındaki ürün birimi SNAPSHOT'ı. Ürünün birimi sonradan değişse de
   // geçmiş irsaliye/rapor anlamını korur — aynı gerekçe ExitItem.pricePerKg için
   // de yazılı. Snapshot olmadan bir Entry satırı tek başına okunamaz.
-  unit            ProductUnit    @default(CASE)
-  weak            Boolean        @default(false)
+  unit                ProductUnit          @default(CASE)
+  weak                Boolean              @default(false)
   // Tek kullanımlık (siyah/karton) kasa. true ise bu malın kasası HİÇBİR bakiyeye
   // girmez — ne bölgeye (REGION_IN), ne bayiye (MARKET_OUT), ne iadede (MARKET_IN).
   // Atılan kasadır, stoklu kasa değil. weak'ten BAĞIMSIZ: ikisi aynı anda
   // işaretlenebilir. Tek okuma noktası: utils/cases.js → trackedCases()
-  disposableCase  Boolean        @default(false)
+  disposableCase      Boolean              @default(false)
   // İkinci kalite mal. SADECE ETİKET (2026-08-18): kasa muhasebesine karışmaz —
   // trackedCases() bunu okumaz, kasa normal sayılır — ve fiyatı değiştirmez.
   // Raporlama/filtreleme için var. weak ve disposableCase'ten bağımsız, üçü
@@ -206,18 +245,50 @@ model Entry {
   // Kaldırılan Quality TABLOSUYLA İLGİSİ YOK: o sistem 2026-08-13'te kullanımdan
   // kalktı (bkz. Price modeli yorumu) ve fiyatı kaliteye bağlıyordu. Bu düz bir
   // işaret; diriltilmiş kalite sistemi değil.
-  bQuality        Boolean        @default(false)
+  bQuality            Boolean              @default(false)
   // Mal kabul mu, iade mi, imha mı — raporlar buna göre filtreler
-  source          EntrySource    @default(HARVEST)
-  market          Market         @relation(fields: [marketId], references: [id], onDelete: Restrict)
-  marketId        Int
-  exitItems       ExitItem[]
-  transfers       Transfer[]
+  source              EntrySource          @default(HARVEST)
+  market              Market               @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId            Int
+  exitItems           ExitItem[]
+  transfers           Transfer[]
+  // ——— ALIŞ (üreticiye ödenecek) tarafı ———
+  // Mal kabul anında uygulanan alış fiyatı SNAPSHOT'ı. ExitItem.pricePerKg ile
+  // aynı gerekçe: fiyat sonradan değişse de bu satırın maliyeti sabit kalır.
+  //
+  // NULL = o gün o ürünün alış fiyatı girilmemişti → BORÇ YAZILMADI. 0 değil:
+  // sıfır "bedava aldık" demek (bkz. utils/prices.js:23-24). Bu satırlar
+  // GET /api/admin/ledger/producers/missing-price listesinde birikir.
+  //
+  // TİCARİ SIR: saha rollerine (OPERATOR/DEPO/CASE_MANAGER) sızmamalı.
+  // Koruma middleware/purchaseGuard.js'te, fail-closed.
+  purchasePricePerKg  Float?
+  // Fiyat hangi katmandan geldi — muhasebecinin "neden bu rakam" sorusunun
+  // tek satırlık cevabı. Panelde rozet olarak gösterilir.
+  purchasePriceSource PurchasePriceSource?
+  // Mal kabul anındaki MİKTAR snapshot'ı.
+  //
+  // NEDEN weight VARKEN AYRI KOLON: weight canlı stok miktarıdır ve mal kabul
+  // sonrası DEĞİŞİR — depo transferinde yeniden tartılır (transferController
+  // içindeki fullEntry update'i weight'i eziyor) ve kısmî aktarmada bölünür.
+  // Borç ise mal kabul anında donuyor ve fire ödendiği için düşmüyor
+  // (2026-08-26 kararı). İki kolon olmasa dökümde "97 kg × 10 TL = 1000 TL"
+  // gibi kendi kendini yalanlayan bir satır çıkar ve muhasebeci sisteme
+  // güvenmez. Bu kolonla: "Alınan 100 kg · 1.000 TL · güncel stok 97 kg".
+  purchaseQty         Float?
+  // Bu mal kabulden doğan üretici borcu. Silinirse borç da düşer (Cascade).
+  ledgerEntry         LedgerEntry?
   // Kaydı kim oluşturdu. Saha girişlerinde operatör, admin/muhasebenin elle
   // açtığı depo girişlerinde o kullanıcı. Elle giriş bölge oturumu olmadan
   // stok yarattığı için izlenebilir olmalı.
-  createdBy       String?
-  createdAt       DateTime       @default(now())
+  createdBy           String?
+  createdAt           DateTime             @default(now())
+  // "Fiyatsız mal kabul" uyarı listesi. PARTIAL index migration'da elle
+  // yazıldı (Prisma partial index üretemiyor):
+  //   Entry_missing_purchase_price_idx ON ("createdAt")
+  //     WHERE "purchasePricePerKg" IS NULL AND "producerId" IS NOT NULL
+  // Tam index olsaydı boşuna şişerdi: normalde fiyat GİRİLMİŞ olmalı, bu
+  // koşulu sağlayan satırlar azınlık.
 
   // FIFO grouped transfer + market filter sorgularını hızlandırır
   @@index([marketId, productId, createdAt])
@@ -240,13 +311,13 @@ model Exit {
 }
 
 model ExitItem {
-  id         Int     @id @default(autoincrement())
-  exit       Exit    @relation(fields: [exitId], references: [id], onDelete: Cascade)
-  exitId     Int
-  entry      Entry   @relation(fields: [entryId], references: [id], onDelete: Restrict)
-  entryId    Int
-  loaded     Boolean @default(true)
-  pricePerKg Float?  // Exit oluşurken o anki fiyatın snapshot'ı — sonradan fiyat değişse de irsaliye tutarı sabit kalır
+  id             Int     @id @default(autoincrement())
+  exit           Exit    @relation(fields: [exitId], references: [id], onDelete: Cascade)
+  exitId         Int
+  entry          Entry   @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  entryId        Int
+  loaded         Boolean @default(true)
+  pricePerKg     Float? // Exit oluşurken o anki fiyatın snapshot'ı — sonradan fiyat değişse de irsaliye tutarı sabit kalır
 
   @@unique([exitId, entryId])
   @@unique([entryId])
@@ -266,38 +337,125 @@ model ExitItem {
 // eşit sayılmaz). Genel fiyatın tekilliğini migration'daki partial unique index
 // sağlıyor: UNIQUE (productId, date) WHERE qualityId IS NULL.
 model Price {
-  id         Int      @id @default(autoincrement())
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  productId  Int
-  quality    Quality? @relation(fields: [qualityId], references: [id], onDelete: Cascade)
-  qualityId  Int?
-  pricePerKg Float
-  date       DateTime @db.Date
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @default(now()) @updatedAt
-  updatedBy  String?
+  id             Int      @id @default(autoincrement())
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId      Int
+  quality        Quality? @relation(fields: [qualityId], references: [id], onDelete: Cascade)
+  qualityId      Int?
+  pricePerKg     Float
+  date           DateTime @db.Date
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+  updatedBy      String?
 
   @@unique([productId, qualityId, date])
   // Genel fiyatın gün+ürün bazlı aramasını karşılar
   @@index([date, productId])
 }
 
+// ————————————————————————————————————————————————————————————————————————
+// ALIŞ FİYATI — üreticiden malı kaça aldığımız.
+//
+// Yukarıdaki Price SATIŞ fiyatıdır (bayiye kesilen irsaliye). Bu tablo ondan
+// TAMAMEN BAĞIMSIZDIR: iş modeli alım-satım/tüccarlık (2026-08-26 kararı),
+// komisyonculuk değil. Aradaki fark marjdır.
+//
+// KALİTE KOLONU YOK — bilinçli. Price'ta qualityId nullable olduğu için
+// @@unique NULL'lu satırları kapsamıyor ve tekilliği migration'daki partial
+// index taşıyor (bkz. 20260813190000_price_quality_optional). Kalite
+// 2026-08-13'te kullanımdan kalktı; yeni tabloda diriltmek o tuzağı bedavaya
+// satın almak olurdu. Nullable kolon olmadığı için buradaki @@unique GERÇEK
+// unique — partial index gerekmiyor ve prisma.upsert çalışıyor.
+//
+// pricePerKg adı Price ile simetri için korundu: birim CASE ise ₺/kg, BUNCH ise
+// ₺/bağ, PIECE ise ₺/adet demektir (bkz. utils/units.js).
+//
+// ZAMAN BOYUTU: fiyat yazıldığı güne değil DEĞİŞTİRİLENE KADAR geçerlidir — o
+// güne satır yoksa önceki günden devralınır (carry-forward, bkz.
+// purchasePriceController.effectivePurchaseRows). Devir olmasaydı muhasebeci
+// her sabah tüm katalogu yeniden girmek zorunda kalır, girmediği gün mal
+// bedava alınmış görünürdü.
+model PurchasePrice {
+  id         Int      @id @default(autoincrement())
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId  Int
+  pricePerKg Float
+  date       DateTime @db.Date
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+  updatedBy  String?
+
+  @@unique([productId, date])
+  @@index([date, productId])
+}
+
+// Üretici + ürün + gün bazlı ÖZEL alış fiyatı — fiyat katmanlarının en üstü.
+// Bu satır varsa üreticinin yüzde primi UYGULANMAZ, fiyat nihaidir.
+// Gerekçe ve çözümleme sırası: utils/purchasePrices.js
+//
+// cancelled: özel fiyatı KALDIRMANIN tek doğru yolu. Carry-forward yüzünden
+// satırı DELETE etmek yetmez — silinince bir önceki tarihli satır devreye girer
+// ve "kaldırdım" denen fiyat kendiliğinden geri gelir. cancelled=true bir mezar
+// taşıdır: çözümleyici görünce özel fiyat YOK sayıp prim/genel katmanına düşer,
+// geçmiş de bozulmaz.
+model ProducerPrice {
+  id         Int      @id @default(autoincrement())
+  producer   Producer @relation(fields: [producerId], references: [id], onDelete: Cascade)
+  producerId Int
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId  Int
+  pricePerKg Float
+  cancelled  Boolean  @default(false)
+  date       DateTime @db.Date
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+  updatedBy  String?
+
+  @@unique([producerId, productId, date])
+  // Mal kabulde tek üreticinin tüm ürün fiyatları çekiliyor
+  @@index([producerId, productId, date])
+  @@index([date, producerId])
+}
+
 // Finansal hareket — bayi (müşteri) ve üretici cari hesapları
 model LedgerEntry {
-  id           Int             @id @default(autoincrement())
-  type         LedgerEntryType
-  amount       Float
-  market       Market?         @relation(fields: [marketId], references: [id], onDelete: Restrict)
-  marketId     Int?
-  producer     Producer?       @relation(fields: [producerId], references: [id], onDelete: Restrict)
-  producerId   Int?
-  exit         Exit?           @relation(fields: [exitId], references: [id], onDelete: Cascade)
-  exitId       Int?            @unique
-  returnRecord ReturnRecord?
-  note         String?
-  occurredAt   DateTime        @default(now())
-  createdAt    DateTime        @default(now())
-  createdBy    String?
+  id            Int             @id @default(autoincrement())
+  type          LedgerEntryType
+  amount        Float
+  market        Market?         @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId      Int?
+  producer      Producer?       @relation(fields: [producerId], references: [id], onDelete: Restrict)
+  producerId    Int?
+  exit          Exit?           @relation(fields: [exitId], references: [id], onDelete: Cascade)
+  exitId        Int?            @unique
+  // Borcun DOĞDUĞU mal kabul kaydı — exitId'nin (MARKET_INVOICE ↔ Exit) üretici
+  // tarafındaki aynası.
+  //
+  // @unique: bir mal kabul satırı en fazla BİR borç doğurur. Offline retry'ın
+  // ikinci savunma hattı — SyncedBatch aşılsa bile aynı Entry'ye ikinci borç
+  // fiziksel olarak yazılamaz.
+  //
+  // Cascade: giriş silinirse borç da kalkmalı, yoksa üreticinin cari hesabında
+  // karşılığı olmayan bir borç kalır (CaseMovement.entryId ile aynı gerekçe).
+  //
+  // Dolu olması kaydın OTOMATİK olduğu anlamına gelir → elle silinemez
+  // (ledgerController.deleteEntry kapısı).
+  entry         Entry?          @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entryId       Int?            @unique
+  returnRecord  ReturnRecord?
+  // Nakit / havale / çek. YALNIZCA *_PAYMENT tiplerinde dolar — borç veya
+  // düzeltme kaydına "nakit" yazmak muhasebede karşılığı olmayan bilgi üretir.
+  // Uygulama katmanı doğruluyor, DB'de de CHECK constraint var (API dışı
+  // yazımlara karşı son savunma).
+  paymentMethod PaymentMethod?
+  note          String?
+  occurredAt    DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  createdBy     String?
+  // Otomatik borç sorguları (üretici paneli, mutabakat script'i) için PARTIAL
+  // index migration'da elle yazıldı — satırların çoğunda entryId NULL:
+  //   LedgerEntry_auto_producer_idx ON ("producerId","occurredAt")
+  //     WHERE "entryId" IS NOT NULL
 
   @@index([marketId, occurredAt])
   @@index([producerId, occurredAt])
@@ -340,31 +498,31 @@ model CaseMovement {
 // Bayiden mal iadesi: Entry (opt) + LedgerEntry + CaseMovement tek kayıtta toplanır.
 // Silinince üç bağlı kayıt da silinir (cascade reversal).
 model ReturnRecord {
-  id              Int           @id @default(autoincrement())
-  market          Market        @relation(fields: [marketId], references: [id], onDelete: Restrict)
-  marketId        Int
-  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
-  productId       Int
-  qualityId       Int?
-  caseCount       Int           // Fiziksel kasa adedi — birimden bağımsız
-  weight          Float         // CASE: kilo · BUNCH: bağ · PIECE: adet
-  pricePerKg      Float         // Birimin fiyatı: ₺/kg · ₺/bağ · ₺/adet
-  amount          Float
-  unit            ProductUnit   @default(CASE)
-  weak            Boolean       @default(false)
+  id             Int           @id @default(autoincrement())
+  market         Market        @relation(fields: [marketId], references: [id], onDelete: Restrict)
+  marketId       Int
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productId      Int
+  qualityId      Int?
+  caseCount      Int // Fiziksel kasa adedi — birimden bağımsız
+  weight         Float // CASE: kilo · BUNCH: bağ · PIECE: adet
+  pricePerKg     Float // Birimin fiyatı: ₺/kg · ₺/bağ · ₺/adet
+  amount         Float
+  unit           ProductUnit   @default(CASE)
+  weak           Boolean       @default(false)
   // Entry.disposableCase'in aynası — iade edilen mal siyah/karton kasada geldiyse
   // bayinin kasa borcundan düşülmez (MARKET_IN yazılmaz).
-  disposableCase  Boolean       @default(false)
-  discarded       Boolean       @default(false)
-  note            String?
-  entry           Entry?        @relation(fields: [entryId], references: [id], onDelete: SetNull)
-  entryId         Int?          @unique
-  ledgerEntry     LedgerEntry?  @relation(fields: [ledgerEntryId], references: [id], onDelete: SetNull)
-  ledgerEntryId   Int?          @unique
-  caseMovement    CaseMovement? @relation(fields: [caseMovementId], references: [id], onDelete: SetNull)
+  disposableCase Boolean       @default(false)
+  discarded      Boolean       @default(false)
+  note           String?
+  entry          Entry?        @relation(fields: [entryId], references: [id], onDelete: SetNull)
+  entryId        Int?          @unique
+  ledgerEntry    LedgerEntry?  @relation(fields: [ledgerEntryId], references: [id], onDelete: SetNull)
+  ledgerEntryId  Int?          @unique
+  caseMovement   CaseMovement? @relation(fields: [caseMovementId], references: [id], onDelete: SetNull)
   caseMovementId Int?          @unique
-  createdAt       DateTime      @default(now())
-  createdBy       String?
+  createdAt      DateTime      @default(now())
+  createdBy      String?
 
   @@index([marketId, createdAt])
   @@index([createdAt])
@@ -410,14 +568,14 @@ model Transfer {
 model AuditLog {
   id          Int      @id @default(autoincrement())
   userId      Int?
-  username    String?  // kayıt anındaki kullanıcı adı (hesap sonradan silinse de durur)
+  username    String? // kayıt anındaki kullanıcı adı (hesap sonradan silinse de durur)
   // READ | EXPORT | CREATE | UPDATE | DELETE | LOGIN | LOGIN_FAIL
   // Yazma eylemleri 2026-08-18'de eklendi: o güne kadar yalnızca okuma/indirme
   // kaydediliyordu, bu yüzden logda sadece admin panelini gezen kullanıcılar
   // görünüyordu — sahada mal kabul yapan operatörlerin hiçbir izi yoktu.
   action      String
-  resource    String   // entry | exit | return | price | user | ledger | ...
-  recordCount Int?     // dönen/işlenen kayıt sayısı — anomali tespiti için
+  resource    String // entry | exit | return | price | user | ledger | ...
+  recordCount Int? // dönen/işlenen kayıt sayısı — anomali tespiti için
   // Etkilenen kaydın kimliği. Silme/düzenlemede "neyi" sorusunun cevabı;
   // olmadan log "sildi" der ama neyi sildiğini söylemez.
   recordId    Int?
