@@ -26,6 +26,7 @@ globalThis.window ??= globalThis
 globalThis.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
 
 import { fileURLToPath } from 'node:url'
+import { readFile } from 'node:fs/promises'
 import { createServer } from 'vite'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createElement as h } from 'react'
@@ -231,6 +232,73 @@ console.log('\n── Kasa darası (frontend ↔ backend) ──')
   const gecersiz = { unit: 'CASE', caseCount: 10, disposableCase: false, weight: 15 }
   ok(Boolean(be.applyTare(gecersiz).error) && fe.previewTare(gecersiz).gecersiz,
      'dara brütü aşınca ikisi de reddediyor')
+}
+
+// ——— Fatura onay widget'ı + fişteki fatura no ———
+console.log('\n── Fatura onayı ──')
+{
+  const { InvoiceApprovalWidget } = await load('/src/pages/Admin/Invoices/InvoiceApprovalWidget.jsx')
+  // İlk render (SSR'da useEffect çalışmaz → yükleniyor hâli). Amaç prop
+  // sözleşmesi: Segmented/EmptyState/Pagination'a yanlış tipte prop geçilirse
+  // build değil YALNIZ render patlar (bkz. EmptyState icon vakası).
+  try {
+    renderToStaticMarkup(wrap(h(InvoiceApprovalWidget)))
+    ok(true, 'widget render edildi')
+  } catch (e) { ok(false, 'widget render edildi', String(e.message).slice(0, 200)) }
+
+  const { ExitBadges, InvoiceBadge } = await load('/src/components/ui/ExitBadges.jsx')
+  const onayli = renderToStaticMarkup(wrap(h(ExitBadges, {
+    exit: { invoiceNo: 'MSK-42', invoiceAt: new Date().toISOString(), printedAt: new Date().toISOString(), printCount: 2 },
+  })))
+  ok(onayli.includes('MSK-42'), 'onaylı rozetinde fatura no yazıyor')
+  ok(onayli.includes('İrsaliye basıldı'), 'baskı rozeti çıktı')
+  ok(onayli.includes('×2'), 'yeniden baskı sayısı görünüyor')
+
+  // Tam sayfa hâli + sol menü + giriş ekranı kutucuğu
+  const { InvoiceApprovalPage } = await load('/src/pages/Admin/Invoices/InvoiceApprovalPage.jsx')
+  try {
+    const sayfa = renderToStaticMarkup(wrap(h(InvoiceApprovalPage)))
+    ok(sayfa.includes('Fatura Onayı'), 'tam sayfa render edildi')
+  } catch (e) { ok(false, 'tam sayfa render edildi', String(e.message).slice(0, 200)) }
+
+  // Sol menü: fatura onayı ACCOUNTING'e de görünmeli (fatura eşleştirmesi
+  // muhasebenin asıl işi). adminOnly eklenirse bu test kırılır.
+  const { AdminLayout } = await load('/src/pages/Admin/AdminLayout.jsx')
+  const menu = renderToStaticMarkup(wrap(h(AdminLayout)))
+  ok(menu.includes('Fatura Onayı'), 'sol menüde görünüyor')
+  ok(menu.includes('/admin/fatura-onay'), 'menü doğru adrese gidiyor')
+
+  // Giriş ekranındaki kutucuk STATİK okunuyor, render ile değil.
+  //
+  // NEDEN: RoleSelectPage kullanıcıyı store'dan alıyor ve SSR koşucusunda
+  // store'a yazılan kullanıcı bileşene ulaşmıyor (ayrı modül örneği) — render
+  // testi kullanıcıyı null görüp hep boş liste basıyordu, yani rol kuralı
+  // hakkında hiçbir şey kanıtlamıyordu. Kutucuk zaten bir yapılandırma satırı;
+  // asıl doğrulanması gereken şey rol listesi ve adres.
+  const rolSayfasi = await readFile(new URL('../src/pages/RoleSelectPage.jsx', import.meta.url), 'utf8')
+  const kutu = rolSayfasi.match(/\{[^{}]*key: 'fatura-onay'[\s\S]*?\n  \}/)
+  ok(!!kutu, 'giriş ekranında fatura onayı kutucuğu tanımlı')
+  ok(/to: '\/admin\/fatura-onay'/.test(kutu?.[0] ?? ''), 'kutucuk onay sayfasına gidiyor')
+  ok(/roles: \['ADMIN', 'ACCOUNTING'\]/.test(kutu?.[0] ?? ''), 'kutucuk ADMIN + ACCOUNTING rollerinde')
+
+  const bekleyen = renderToStaticMarkup(wrap(h(InvoiceBadge, { exit: { invoiceNo: null } })))
+  ok(bekleyen.includes('Fatura bekliyor'), 'onaysızda bekliyor rozeti')
+
+  // Basılmamış irsaliyede "basılmadı" YAZMAMALI: bu bilgi güvenilir değil ve
+  // özellikten önceki fişlerin hepsi basılmış olmasına rağmen printedAt'i boş.
+  const basilmamis = renderToStaticMarkup(wrap(h(ExitBadges, { exit: { invoiceNo: null, printedAt: null } })))
+  ok(!/bas[ıi]lmad/i.test(basilmamis), 'basılmamışta yanlış etiket yok')
+
+  // Fişte fatura no: yalnız girilmişse basılır
+  const { IrsaliyeSheet } = await load('/src/components/IrsaliyePrint.jsx')
+  const temel = {
+    id: 7, createdAt: new Date().toISOString(), market: { no: 1, name: 'Pazar 1' }, marketCaseBalance: 0,
+    items: [{ id: 1, pricePerKg: 10, entry: { caseCount: 2, weight: 20, unit: 'CASE', product: { name: 'Domates' } } }],
+  }
+  const faturali = renderToStaticMarkup(wrap(h(IrsaliyeSheet, { exit: { ...temel, invoiceNo: 'MSK-99' } })))
+  ok(faturali.includes('Fatura No:') && faturali.includes('MSK-99'), 'fişte fatura no basıldı')
+  const faturasiz = renderToStaticMarkup(wrap(h(IrsaliyeSheet, { exit: temel })))
+  ok(!faturasiz.includes('Fatura No'), 'fatura yoksa boş satır basılmıyor')
 }
 
 await vite.close()

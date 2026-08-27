@@ -16,6 +16,8 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 🏬 **Depo giriş-çıkış geçmişi** — `/admin/depo` → **Geçmiş** sekmesi: bir günde depoya ne girdi, ne çıktı ve **kim yaptı**. Stok sekmesi bu soruyu CEVAPLAYAMAZ — `Entry.marketId` canlı konum alanı olduğu için depodan çıkan mal stok listesinden tamamen kaybolur, yani gün içinde girip aynı gün çıkan mal hiç olmamış gibi görünür. Uç, `Entry` ve `Transfer` tablolarını **tek zaman çizelgesinde birleştirir**: doğrudan depo girişleri (saha mal kabulü, ofis girişi, iade) `Transfer` satırı doğurmaz, yalnız transferlere bakmak bu hareketleri kaçırırdı. Bir girişin **kaynağı** en eski `Transfer.fromMarketId`'den, o yoksa güncel `marketId`'den çözülür. Kasa adedi `Entry.purchaseCases` snapshot'ından okunur (`caseCount` kısmî transferde parçadan düşülüyor, geçmiş sessizce eksik toplardı). Tarih aralığı, yön (giriş/çıkış), metin araması, sayfalama ve Excel/PDF export var
 - ↔️ **Pazardan pazara aktarma** — Yanlış pazara yazılan kalem, irsaliye kesilmeden önce çıkış ekranından doğru pazara aktarılır; geri alınabilir, kasa/cari hesap etkilenmez
 - 📋 **Çıkış & Teslim Fişi** — iPad'de PDF → AirPrint, masaüstünde doğrudan yazdırma; fiyat snapshot (fiş sonradan fiyat değişse de sabit kalır); **fişte satır = ÜRÜN, kayıt değil** — aynı ürünün farklı mal kabul kayıtları (farklı gün/parti, transferde bölünme) tek satırda toplanır. Birleştirme yalnızca **fişte görünen alanların tamamı** aynıysa yapılır (ürün + birim + net fiyat + normal fiyat), ayrışan tek şey `Entry` kimliğidir ve o zaten basılmıyor — çıktıdan bilgi kaybolmaz. Ekran fişi ve PDF **aynı fonksiyondan** beslenir (`utils/pdfGenerator.js` → `irsaliyeRows()`), ayrışamazlar. Kozmetiktir: veritabanı, kasa hareketi, cari borç ve admin geçmiş ekranı kayıt bazında kalır
+- 🧾 **Legal fatura onayı** — Üç giriş noktası, **tek bileşen**: giriş ekranındaki kutucuk → `/admin/fatura-onay` tam sayfa, admin sol menüsünde **Fatura Onayı**, ve admin ana sayfasındaki özet kutusu. Aynı liste kopyalanmadı; fark yalnızca sayfa başına kayıt (tam sayfada 25, dashboard'da 10). Yetki her üçünde `ADMIN` + `ACCOUNTING`: iki sekme — **Onay Bekleyenler** (varsayılan, eskiden yeniye — en uzun bekleyen en tepede) ve **Onaylılar**. Kesilen HER irsaliye kuyruğa düşer; muhasebeci satırdaki *Onayla* ile açılan alana resmi fatura numarasını yazar, `Exit.invoiceNo` dolunca irsaliye onaylı sayılır. Ayrı bir "durum" kolonu **yok** — sekmeler tam olarak bu alanın boş/dolu olmasıdır (iki kaynaklı gerçek er ya da geç ayrışır). Fatura no **serbest metin ama benzersiz**: format dayatılmaz (fatura serileri işletmeye göre değişir), ancak aynı numara iki irsaliyeye yazılamaz; çakışma kontrolü **büyük/küçük harf duyarsız** ve hata hangi irsaliyede kullanıldığını söyler. Düzeltme `ADMIN`+`ACCOUNTING`'e açık, **onayı geri alma yalnız `ADMIN`** (numarayı düzeltmek muhasebe işi, bağı koparmak değil). Her iki işlem de `AuditLog`'a eski→yeni olarak düşer. Rozetler dört yerde: widget, Takip & Geçmiş listesi, çıkış ekranındaki başarı kartı ve **basılan fişin başlığında** (yalnız numara girilmişse — fiş çoğu zaman faturadan önce basıldığı için sahada genelde boş çıkar, onay sonrası yeniden bastırınca görünür)
+- 🖨️ **İrsaliye basıldı rozeti** — `Exit.printedAt` / `printedBy` / `printCount`. Yazdırma tetiklendikten **sonra** ateşle-unut olarak işaretlenir (`window.print()` öncesine `await` konamaz, iOS izni düşürüyor) ve hata yutulur — offline iPad'de istek düşse bile fiş basılmış olmalı. İlk baskı anı **sabit**, yeniden baskılar yalnız sayacı artırır. **%100 güvenilir DEĞİL**: AirPrint paneli açılıp iptal edilirse tarayıcı haber vermiyor, iptal de "basıldı" sayılır — bu yüzden **onay kuyruğu bu alana bağlanmadı**, kuyruğa her irsaliye düşer ve baskı yalnızca ayrı bir rozettir. Basılmamış irsaliyede rozet **hiç çıkmaz** ("basılmadı" yazmaz: bu özellikten önceki fişlerin hepsi basılmıştı ama `printedAt`'leri boş)
 - 🏷️ **İndirimli satış fiyatı** — `/admin/fiyatlar` satış sekmesinde iki alan: **Normal Fiyat** (indirim öncesi) ve **Net Fiyat** (fatura bundan kesilir). Normal boşsa indirim yok, tek fiyat geçerli. Dolu ve net'ten büyükse teslim fişinde **"70 → 50"** olarak basılır (normal fiyat üstü çizili) — bayi indirimi görür, fatura yine net tutardan hesaplanır. `Price.listPricePerKg` yalnız GÖSTERİM: `pricePerKg` anlamını korudu (uygulanacak tutar), bu yüzden fiyat okuyan hiçbir kod değişmedi. `ExitItem.listPricePerKg` snapshot'lanır, fiyat sonradan değişse eski fiş aynı indirimi gösterir. İndirim carry-forward'a tabi (değiştirilene kadar geçerli) ve tüm bayilere uygulanır. Normal < net girilirse 400 döner (alanlar karıştırılmış demektir), normal = net girilirse indirim yok sayılır — sahte "%0 indirim" basılmaz
 - 💵 **Ürün başına tek fiyat** — `/admin/fiyatlar` ürün × kalite matrisiydi, artık tek sütun. Kalite özelliği kullanımdan kalktı: mal kabul ekranı zaten `qualityId` göndermiyordu, kaliteli fiyat satırları saha girişleriyle **hiç eşleşmiyor** ve irsaliyede fiyat boş kalıyordu. Eski kaliteli satırlar duruyor ve aramada hâlâ öncelikli (`priceOf()`: önce ürün+kalite, yoksa genel fiyat)
 - 🔄 **İade kabul** — Ayrı ekran (`/iade`): depoya al, başka pazara yolla **veya** imha et (atomic: Entry + Ledger + CaseMovement)
@@ -318,6 +320,9 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/api/region/*` | RegionSession (aktif/tamamlanan) |
 | `/api/markets/*` | Pazar listesi (public dahil) |
 | `/api/admin/*` | Region/Producer/Product/Quality/User CRUD + raporlar + finans + iade |
+| `/api/admin/exits/invoice-queue` | Fatura onay kuyruğu (`status=pending\|approved`, arama, sayfalı) + `pendingCount` |
+| `/api/admin/exits/:id/invoice` | `POST` onay/düzeltme (`ADMIN`+`ACCOUNTING`) · `DELETE` onayı geri alma (**yalnız `ADMIN`**) |
+| `/api/exit/:id/printed` · `/api/admin/exits/:id/printed` | "Basıldı" işareti — iki uç, çünkü baskı hem saha (`OPERATOR`) hem admin ekranından yapılıyor |
 | `/api/admin/depo/history` | Depo hareket geçmişi (`ADMIN`+`ACCOUNTING`) — `Entry` + `Transfer` birleşik, yön/tarih/arama filtreli, sayfalı |
 | `/api/admin/returns` | İade **listeleme + silme** (`ADMIN`+`ACCOUNTING`). Saha `/api/depo/returns` yalnız `DEPO`+`ADMIN` — muhasebeci oradan 403 alıyordu. İade **oluşturma** burada yok: fiziksel mal kabulü, sahada tartılarak girilir |
 | `/api/admin/purchase-prices/*` | **Alış** fiyatı (genel + üretici özel). Yalnız `ADMIN`/`ACCOUNTING` — saha karşılığı **yok** |
@@ -344,6 +349,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/admin/fiyatlar` | ADMIN, ACC. | Günlük fiyat girişi — 3 sekme: satış (normal + net/indirimli) · alış · üretici özel fiyatı (+ marj kolonu) |
 | `/admin/finans` | ADMIN, ACC. | Bayi alacak / Üretici borç cari — **ham defter** (elle düzeltme, açılış devri) |
 | `/admin/uretici-odeme` | ADMIN, ACC. | Üretici ödeme paneli (bakiye, ekstre, mal kabul dökümü, tek/toplu ödeme, makbuz) |
+| `/admin/fatura-onay` | ADMIN, ACC. | Legal fatura onayı — bekleyen/onaylı sekmeleri, arama, tek tek eşleştirme |
 | `/admin/takip` | ADMIN, ACC. | Geçmiş hareket logu |
 | `/admin/kasalar` | ADMIN, ACC. | Kasa hareketleri raporu |
 | `/admin/transferler` | ADMIN, ACC. | Transfer geçmişi |
@@ -370,7 +376,7 @@ Ana entity'ler:
 - **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable). `Product.unit: ProductUnit` (`CASE`/`BUNCH`/`PIECE`) → satış birimi (kilo / bağ / adet). **Quality kullanımdan kalktı** (2026-08-13): mal kabul zaten kalite göndermiyordu, fiyat ürün başına tek. Tablo ve `Entry.qualityId`/`ReturnRecord.qualityId` alanları geçmiş kayıtlar için duruyor
 - **Market** — Pazar/bayi (`no` unique numara)
 - **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `weight` kiloda **NET**'tir (kasa darası düşülmüş); `grossWeight` / `tareKg` tartım anının izidir, `NULL` ise o satıra dara uygulanmamıştır. `purchasePricePerKg` / `purchasePriceSource` / `purchaseQty` → mal kabul anındaki **alış snapshot'ı**; borç bunlardan hesaplanır, `weight`'ten değil (transferde yeniden tartılıp değişebiliyor). Bu üç kolon **ticari sır**, saha yanıtlarından `middleware/purchaseGuard.js` ile silinir. `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti, `bQuality` ikinci kalite işareti (**yalnızca etiket** — kasa hesabına ve fiyata karışmaz). `disposableCase` ve `bQuality` satır bazında ayarlanabilir: mal kabulde üstteki tik partinin tamamına uygulanır, kart üzerindeki işaret tek satırı ayrıştırır
-- **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot)
+- **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot). `invoiceNo` **unique nullable**: legal fatura eşleştirmesi, `NULL` = onay bekliyor. Tek kolonda `@unique` + nullable Postgres'te sorunsuz (iki `NULL` eşit sayılmaz), `Price`'taki tuzak **bileşik** unique'ti. `printedAt`/`printedBy`/`printCount` baskı izi
 - **Transfer** — Pazardan pazara taşıma geçmişi
 - **PurchasePrice** — Günlük **alış** fiyatı (üreticiye ödenen). `Price`'ın eşi ve ondan tamamen bağımsız; kalite kolonu **yok** (bilinçli — `Price`'taki nullable-unique tuzağı tekrarlanmasın diye, bu yüzden `@@unique(productId, date)` gerçek unique ve `prisma.upsert` çalışıyor). Carry-forward aynı: fiyat değiştirilene kadar geçerli
 - **ProducerPrice** — Üretici + ürün + gün özel alış fiyatı; katmanların en üstü, varsa prim uygulanmaz. `cancelled` → özel fiyatı kaldırmanın **tek doğru yolu**: satır silinseydi carry-forward bir önceki fiyatı diriltir ve "kaldırdım" denen rakam geri gelirdi
@@ -531,6 +537,23 @@ olarak yazılır.
 - [ ] Düzenlemede siyah kasayı işaretle → kilo brüte (100) döndü
 - [ ] Bayiden 4 kasa · 40 kg iade al → 32 kg kaydedildi, bayinin borcundan **net** tutar düşüldü
 - [ ] Depo elle girişte de dara düşülüyor
+
+### Fatura Onayı
+- [ ] İrsaliye kes → ana sayfadaki **Onay Bekleyenler** sekmesinde göründü, başlıkta "N bekliyor" rozeti arttı
+- [ ] *Onayla* → satır içinde alan açıldı, numara yazıp Enter'a bas → **Onaylılar**'a geçti, bekleyen sayısı düştü
+- [ ] Aynı numarayı başka irsaliyeye yaz → **hata**, hangi irsaliyede kullanıldığını söylüyor
+- [ ] Aynı numarayı küçük harfle yaz → yine **reddedildi**
+- [ ] Onaylı satırda *Düzelt* → numara değişti, `AuditLog`'da eski→yeni görünüyor
+- [ ] `ADMIN` ile *geri al* → bekleyenlere döndü; `ACCOUNTING` kullanıcıda geri al butonu **yok**
+- [ ] Takip & Geçmiş listesinde irsaliyenin yanında fatura no rozeti var
+- [ ] Onaydan sonra Takip'ten fişi yeniden bastır → **fiş başlığında Fatura No satırı** çıktı (ekran + PDF)
+- [ ] Onaysız fişi bastır → fişte "Fatura No" satırı **hiç yok**
+- [ ] Çıkış ekranında irsaliye kesildikten sonra "Fatura bekliyor" rozeti göründü
+- [ ] Fişi bastır → satırda "İrsaliye basıldı" rozeti çıktı; ikinci kez bastır → "×2" oldu, ilk baskı tarihi değişmedi
+- [ ] Fiş no / pazar adı / fatura no ile arama çalışıyor
+- [ ] Giriş ekranında **Fatura Onayı** kutucuğu var (ADMIN/ACCOUNTING'de), `OPERATOR` hesabında **yok**
+- [ ] Admin sol menüsünde **Fatura Onayı** görünüyor ve `/admin/fatura-onay` açılıyor
+- [ ] Tam sayfada sayfa başına 25 kayıt, dashboard kutusunda 10
 
 ### Mal Kabul
 - [ ] Bölge seç → bölge oturumu açılır

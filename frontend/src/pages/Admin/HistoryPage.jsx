@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { MarketAutocomplete } from '@/components/ui/Input'
 import { formatDate, formatWeight, formatQty, isCountable, priceLabel, sumTrackedCases, unitLabel, today } from '@/utils/formatters'
 import { printIrsaliye, openIrsaliyePdf } from '@/store/printStore'
+import { ExitBadges } from '@/components/ui/ExitBadges'
 import { cn } from '@/utils/cn'
 import { AlertTriangle, ChevronDown, ChevronRight, FileText, Pencil, Printer, Trash2 } from 'lucide-react'
 import { ExportButton } from '@/components/ui/ExportButton'
@@ -550,6 +551,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit, onDelete }) {
             </div>
             <div className="flex gap-3 shrink-0 text-sm">
               <span className="text-text-muted">{ex.itemCount} kalem</span>
+              <ExitBadges exit={ex} />
               <span className="font-semibold">{ex.totalCases} kasa</span>
               <span className="font-semibold">{formatWeight(ex.totalWeight)}</span>
               {ex.totalBunches > 0 && (
@@ -574,7 +576,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit, onDelete }) {
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <button
-                    onClick={() => printIrsaliye(ex)}
+                    onClick={() => printIrsaliye(ex, api.markAdminExitPrinted)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-medium hover:bg-primary-dark transition-colors"
                   >
                     <Printer className="w-3.5 h-3.5" /> Yazdır
@@ -583,7 +585,7 @@ function ExitHistoryTable({ data, expanded, onToggle, onEdit, onDelete }) {
                     // openIrsaliyePdf: sekmeyi dokunuşun kendisinde açar.
                     // generateIrsaliye tek başına await'ten SONRA açıyordu,
                     // iPad'de popup engeline takılıp sessizce hiçbir şey yapmıyordu.
-                    onClick={() => openIrsaliyePdf(ex)}
+                    onClick={() => openIrsaliyePdf(ex, api.markAdminExitPrinted)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-border text-text-secondary rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors"
                   >
                     <FileText className="w-3.5 h-3.5" /> PDF

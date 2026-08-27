@@ -34,18 +34,35 @@ export function isIOS() {
 // Paylaş sayfasını açmıyor, yani yazdırma tamamen tıkanıyordu (2026-08-13, saha).
 // Standalone (ana ekrana eklenmiş) modda print() çalışmaz; index.html
 // `apple-mobile-web-app-capable` eklemeyerek bunu bilerek engelliyor.
-export function printIrsaliye(exit) {
+export function printIrsaliye(exit, markPrinted) {
   flushSync(() => {
     usePrintStore.getState().setIrsaliye(exit)
   })
   window.print()
+  // İşaretleme SONRA ve BEKLENMEDEN: window.print() öncesine await koymak iOS'ta
+  // yazdırma iznini düşürüyor (yukarıdaki kural). Hata YUTULUYOR — rozet bilgi
+  // amaçlı, offline iPad'de istek düşse bile fiş basılmış olmalı.
+  isaretle(exit, markPrinted)
+}
+
+// "Basıldı" işareti — ateşle ve unut.
+//
+// GÜVENİLİRLİK SINIRI: tarayıcı yazdırmanın gerçekten olduğunu söylemiyor.
+// Panel açılıp iptal edilse de buraya "basıldı" gelir. Bu yüzden fatura onay
+// kuyruğu bu bilgiye BAĞLANMADI (bkz. exitInvoiceController.markPrinted).
+function isaretle(exit, markPrinted) {
+  if (!exit?.id || typeof markPrinted !== 'function') return
+  try {
+    Promise.resolve(markPrinted(exit.id)).catch(() => {})
+  } catch { /* yok say */ }
 }
 
 // Yedek yol: yazdırma paneli açılmazsa PDF'i yeni sekmede aç. Sekme dokunuşun
 // kendisinde açılmalı, PDF asenkron üretilip içine yazılır.
-export function openIrsaliyePdf(exit) {
+export function openIrsaliyePdf(exit, markPrinted) {
   const win = window.open('', '_blank')
   generateIrsaliye(exit, win)
+  isaretle(exit, markPrinted)
 }
 
 // Üreticiye ödeme makbuzu. printIrsaliye ile AYNI kural geçerli: araya await

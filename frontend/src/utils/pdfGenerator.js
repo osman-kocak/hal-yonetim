@@ -124,7 +124,11 @@ export async function generateIrsaliye(exit, targetWin = null) {
   // kaldırılınca 6mm geri alındı → 41→35.
   // Sığma kontrolü: tablo 35'te başlar, 21 satır × 8mm + başlık ≈ 176mm →
   // 211mm'de biter, imzalar 243mm'de başlar. PAGE_ROWS değişmedi.
-  const headerH = isEdited ? 40 : 35
+  // Fatura no varsa header bir satır uzar. Sığma: tablo 41'de başlasa bile
+  // 21 satır × 8mm + başlık ≈ 176mm → 217mm'de biter, imzalar 243mm'de başlıyor.
+  // PAGE_ROWS değişmedi.
+  const faturaSatiri = exit.invoiceNo ? 6 : 0
+  const headerH = (isEdited ? 40 : 35) + faturaSatiri
 
   function drawHeader(pageNo, pageCount) {
     doc.setTextColor(0, 0, 0)
@@ -170,8 +174,20 @@ export async function generateIrsaliye(exit, targetWin = null) {
     doc.text(`Toplam Kasa Bakiyesi: ${num(exit.marketCaseBalance)}`, pageW / 2, infoY + 12)
     doc.setTextColor(0, 0, 0)
 
+    // LEGAL FATURA NO — yalnızca GİRİLMİŞSE basılır.
+    //
+    // Boş "Fatura No:" satırı basmak faturasız bir fişi resmi evrak gibi
+    // gösterirdi. Fiş çoğu zaman faturadan ÖNCE basıldığı için bu satır sahada
+    // genelde çıkmaz; onaydan sonra Takip'ten yeniden bastırınca görünür.
+    // IrsaliyePrint.jsx ile KİLİT ADIMLI.
+    if (exit.invoiceNo) {
+      doc.setFont('Arial', 'bold')
+      doc.text(`Fatura No: ${exit.invoiceNo}`, SIDE, infoY + 18)
+      doc.setFont('Arial', 'normal')
+    }
+
     doc.setLineWidth(0.4)
-    doc.line(SIDE, infoY + 16, pageW - SIDE, infoY + 16)
+    doc.line(SIDE, infoY + 16 + faturaSatiri, pageW - SIDE, infoY + 16 + faturaSatiri)
   }
 
   function drawFooter() {

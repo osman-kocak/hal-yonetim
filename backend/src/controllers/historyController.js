@@ -97,6 +97,14 @@ export async function getExitHistory(req, res, next) {
         createdBy: ex.createdBy,
         editedAt: ex.editedAt,
         editedBy: ex.editedBy,
+        // Legal fatura eşleştirmesi + baskı durumu: liste satırındaki rozetler
+        // ve basılan fişin başlığı bunları okuyor.
+        invoiceNo: ex.invoiceNo,
+        invoiceAt: ex.invoiceAt,
+        invoiceBy: ex.invoiceBy,
+        printedAt: ex.printedAt,
+        printedBy: ex.printedBy,
+        printCount: ex.printCount,
         market: ex.market,
         itemCount: ex.items.length,
         totalCases: ex.items.reduce((s, i) => s + i.entry.caseCount, 0),

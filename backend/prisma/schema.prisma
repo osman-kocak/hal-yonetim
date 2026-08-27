@@ -339,6 +339,39 @@ model Exit {
   createdBy    String?
   editedAt     DateTime?
   editedBy     String?
+
+  // ——— LEGAL FATURA EŞLEŞTİRMESİ ———
+  // Bu irsaliyenin karşılığı olan resmi fatura numarası. NULL = onay bekliyor.
+  // Onay panelinin iki sekmesi tam olarak bu kolonun dolu/boş olmasıdır.
+  //
+  // SERBEST METİN ama BENZERSİZ: format kısıtı yok (fatura serileri işletmeden
+  // işletmeye değişir), ancak aynı numara iki irsaliyeye yazılamaz — yazılabilse
+  // mutabakatta "hangi irsaliye bu faturaya ait" sorusunun cevabı kalmazdı.
+  //
+  // Tek kolonda @unique nullable ile SORUNSUZ: Postgres NULL'ları birbirine eşit
+  // saymaz, onaysız irsaliyeler serbestçe çoğalır. (Price'taki tuzak BİLEŞİK
+  // unique'ti — orada nullable kolon @@unique'i delip partial index gerektirmişti.)
+  //
+  // Büyük/küçük harf DB'de ayrı sayılır; uygulama katmanı case-insensitive
+  // kontrol edip "bu no #142'de kullanılıyor" diye anlamlı hata döner.
+  invoiceNo String?   @unique
+  invoiceAt DateTime?
+  invoiceBy String?
+
+  // ——— BASKI TAKİBİ ———
+  // İLK baskı anı. Rozet bunu okur.
+  //
+  // %100 GÜVENİLİR DEĞİL ve olamaz: yazdırma paneli açılıp iptal edilirse
+  // tarayıcı haber vermiyor, iptal de "basıldı" sayılıyor. Bu yüzden onay
+  // kuyruğu buna BAĞLANMADI — kuyruğa her irsaliye düşer, baskı ayrı rozettir.
+  // Bilgi amaçlı olduğu için işaretleme isteği başarısız olursa yutuluyor.
+  printedAt  DateTime?
+  printedBy  String?
+  // Kaç kez basıldı — yeniden baskılar da sayılır (ilk baskı anı sabit kalır).
+  printCount Int       @default(0)
+
+  // Onay kuyruğu sorgusu: "fatura no boş olanlar, yeniden eskiye".
+  @@index([invoiceNo, createdAt])
 }
 
 model ExitItem {

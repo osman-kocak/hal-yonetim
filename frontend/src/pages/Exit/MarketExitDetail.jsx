@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { printIrsaliye, openIrsaliyePdf, isIOS } from '@/store/printStore'
+import { ExitBadges } from '@/components/ui/ExitBadges'
 import { generateIrsaliye } from '@/utils/pdfGenerator'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -291,9 +292,14 @@ export function MarketExitDetail() {
           <p className="text-sm text-text-muted mt-2">
             #{createdExit.market?.no} {createdExit.market?.name} · {createdExit.items?.length ?? 0} kalem
           </p>
+          {/* Yeni kesilen irsaliye her zaman "fatura bekliyor" durumunda —
+              rozet operatöre bunun muhasebede bir işi kaldığını söylüyor. */}
+          <div className="flex justify-center mt-3">
+            <ExitBadges exit={createdExit} />
+          </div>
 
           <div className="flex flex-col gap-3 mt-6">
-            <Button size="lg" onClick={() => printIrsaliye(createdExit)} className="w-full flex items-center justify-center gap-2">
+            <Button size="lg" onClick={() => printIrsaliye(createdExit, api.markExitPrinted)} className="w-full flex items-center justify-center gap-2">
               <Printer className="w-5 h-5" />
               Yazdır
             </Button>
@@ -307,7 +313,9 @@ export function MarketExitDetail() {
             <div className="flex gap-3">
               <Button
                 variant="outline"
-                onClick={() => (isIOS() ? openIrsaliyePdf(createdExit) : generateIrsaliye(createdExit))}
+                onClick={() => (isIOS()
+                  ? openIrsaliyePdf(createdExit, api.markExitPrinted)
+                  : generateIrsaliye(createdExit))}
                 className="flex-1 flex items-center justify-center gap-2"
               >
                 <FileText className="w-4 h-4" />

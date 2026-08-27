@@ -4,6 +4,7 @@ import { api } from '@/services/api'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { cn } from '@/utils/cn'
 import { formatTLShort } from '@/utils/currency'
+import { InvoiceApprovalWidget } from './Invoices/InvoiceApprovalWidget'
 import { isCountable } from '@/utils/formatters'
 import {
   ResponsiveContainer,
@@ -105,6 +106,10 @@ export function DashboardPage() {
             <Kpi label="Ciro" value={formatTLShort(data.overview?.kpi.invoiced)} icon={Wallet} color="green" to="/admin/finans" />
             <Kpi label="Zayıf Mal" value={`%${formatNum(data.overview?.kpi.weakRate, 1)}`} icon={AlertTriangle} color={data.overview?.kpi.weakRate > 10 ? 'red' : 'amber'} to="/admin/takip?tab=girisler" />
           </div>
+
+          {/* Fatura onay kuyruğu KPI'ların hemen altında: yapılacak iş,
+              özet rakamlardan sonra ama grafiklerden önce görünmeli. */}
+          <InvoiceApprovalWidget />
 
           {/* Bekleyen finans */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">

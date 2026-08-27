@@ -1,7 +1,7 @@
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { hasAnyRoleArr } from '@/utils/roles'
-import { ShoppingBasket, Receipt, Package, Settings, Boxes, LogOut, RotateCcw } from 'lucide-react'
+import { ShoppingBasket, Receipt, Package, Settings, Boxes, LogOut, RotateCcw, FileCheck } from 'lucide-react'
 
 const ALL_CARDS = [
   {
@@ -53,6 +53,19 @@ const ALL_CARDS = [
     to: '/kasaci',
     color: 'text-purple-600',
     bg: 'bg-purple-50',
+  },
+  {
+    // Admin panelinin İÇİNDE bir sayfa ama buraya kendi kutucuğuyla çıkıyor:
+    // muhasebeci günün büyük kısmını burada geçiriyor, her seferinde Admin
+    // Panel → sol menü yolunu yürümesin.
+    key: 'fatura-onay',
+    roles: ['ADMIN', 'ACCOUNTING'],
+    icon: FileCheck,
+    title: 'Fatura Onayı',
+    description: 'Kesilen irsaliyeleri legal fatura numarasıyla eşleştir',
+    to: '/admin/fatura-onay',
+    color: 'text-cyan-600',
+    bg: 'bg-cyan-50',
   },
   {
     key: 'admin',

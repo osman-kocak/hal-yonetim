@@ -352,6 +352,22 @@ export const api = {
   // carry-forward bir önceki fiyatı diriltir.
   cancelProducerPrice: (id, date) => unwrap(http.post(`/admin/purchase-prices/producer/${id}/cancel`, { date })),
 
+  // ——— Legal fatura eşleştirmesi (ADMIN + ACCOUNTING) ———
+  //
+  // status: 'pending' | 'approved'. Yanıt sayfalı ve ayrıca pendingCount taşır —
+  // hangi sekmede olursak olalım bekleyen sayısı rozette görünmeli.
+  getInvoiceQueue: (params) => unwrap(http.get('/admin/exits/invoice-queue', { params })),
+  // Hem onay hem düzeltme: ikisi de "bu irsaliyenin fatura numarası şudur".
+  setExitInvoiceNo: (id, invoiceNo) => unwrap(http.post(`/admin/exits/${id}/invoice`, { invoiceNo })),
+  // Onayı geri al — YALNIZ ADMIN.
+  clearExitInvoiceNo: (id) => unwrap(http.delete(`/admin/exits/${id}/invoice`)),
+
+  // "İrsaliye basıldı" işareti. İKİ UÇ, çünkü baskı iki ekrandan yapılıyor:
+  // saha çıkış ekranı (OPERATOR) ve admin takip ekranı (ADMIN/ACCOUNTING).
+  // Rol hangisiyse o uç kullanılmalı, yoksa 403 döner.
+  markExitPrinted: (id) => unwrap(http.post(`/exit/${id}/printed`)),
+  markAdminExitPrinted: (id) => unwrap(http.post(`/admin/exits/${id}/printed`)),
+
   // Case Movements (Admin Kasa Takip) — /admin (ADMIN + ACCOUNTING)
   // createAdminCaseMovement, kasacının createCaseMovement'ından AYRI olmalı:
   // rotalar farklı role gerektiriyor (admin rotasında ACCOUNTING var, kasacı rotasında yok).

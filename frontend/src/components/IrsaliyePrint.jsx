@@ -75,6 +75,14 @@ export function IrsaliyeSheet({ exit }) {
               <div className="print-red">
                 <strong>Toplam Kasa Bakiyesi:</strong> {num(exit.marketCaseBalance)}
               </div>
+              {/* LEGAL FATURA NO — yalnızca girilmişse. Boş "Fatura No:" satırı
+                  basmak faturasız fişi resmi evrak gibi gösterirdi. Fiş çoğu
+                  zaman faturadan ÖNCE basıldığı için sahada genelde çıkmaz;
+                  onaydan sonra Takip'ten yeniden bastırınca görünür.
+                  pdfGenerator.js ile KİLİT ADIMLI. */}
+              {exit.invoiceNo && (
+                <div><strong>Fatura No:</strong> {exit.invoiceNo}</div>
+              )}
               {/* Toplam Borç KALDIRILDI (2026-08-18, saha isteği). Sunucu
                   marketDebt'i göndermeye devam ediyor — başka ekranlar
                   kullanıyor, yalnızca fişte basılmıyor. pdfGenerator.js ile

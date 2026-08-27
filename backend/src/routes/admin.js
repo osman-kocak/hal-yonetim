@@ -37,6 +37,9 @@ import { listOutages } from '../controllers/outageController.js'
 import { getExitHistory, getEntryHistory, getDepoHistory } from '../controllers/historyController.js'
 import { updateExit, deleteExit } from '../controllers/exitController.js'
 import {
+  invoiceQueue, setInvoiceNo, clearInvoiceNo, markPrinted,
+} from '../controllers/exitInvoiceController.js'
+import {
   listMovements,
   createMovement,
   deleteMovement,
@@ -149,6 +152,20 @@ router.get('/history/exits', getExitHistory)
 router.get('/history/entries', getEntryHistory)
 router.put('/exits/:id', updateExit)
 router.delete('/exits/:id', deleteExit)
+
+// ——— Legal fatura eşleştirmesi ———
+//
+// ROL: ADMIN + ACCOUNTING (router seviyesinde zaten böyle). Fatura numarasını
+// irsaliyeyle eşleştirmek muhasebenin ASIL işi; adminOnly yapmak muhasebeciyi
+// her fatura için yöneticiye bağımlı kılardı.
+//
+// TEK İSTİSNA onayı GERİ ALMA: numarayı düzeltmek muhasebe işi, eşleştirmeyi
+// tamamen koparmak resmi evrakla irsaliye arasındaki bağı siler.
+router.get('/exits/invoice-queue', invoiceQueue)
+router.post('/exits/:id/invoice', setInvoiceNo)
+router.delete('/exits/:id/invoice', requireRole('ADMIN'), clearInvoiceNo)
+// Takip ekranından yeniden baskı da rozeti günceller.
+router.post('/exits/:id/printed', markPrinted)
 
 // Transferler (geçmiş)
 router.get('/transfers', listTransfers)

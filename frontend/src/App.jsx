@@ -15,6 +15,7 @@ import { QualitiesPage } from '@/pages/Admin/QualitiesPage'
 import { ReportsPage } from '@/pages/Admin/ReportsPage'
 import { PricesPage } from '@/pages/Admin/Prices/PricesPage'
 import { ProducerPaymentsPage } from '@/pages/Admin/ProducerPayments/ProducerPaymentsPage'
+import { InvoiceApprovalPage } from '@/pages/Admin/Invoices/InvoiceApprovalPage'
 import { HistoryPage } from '@/pages/Admin/HistoryPage'
 import { CaseTrackingPage } from '@/pages/Admin/CaseTrackingPage'
 import { DepoPage as AdminDepoPage } from '@/pages/Admin/DepoPage'
@@ -115,6 +116,7 @@ const router = createBrowserRouter([
       { path: 'fiyatlar', element: <PricesPage /> },
       { path: 'finans', element: <FinancePage /> },
       { path: 'uretici-odeme', element: <ProducerPaymentsPage /> },
+      { path: 'fatura-onay', element: <InvoiceApprovalPage /> },
       { path: 'takip', element: <HistoryPage /> },
       { path: 'depo', element: <AdminDepoPage /> },
       { path: 'kasalar', element: <CaseTrackingPage /> },
