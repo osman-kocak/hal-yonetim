@@ -226,11 +226,13 @@ export const api = {
   createManualDepoEntry: (data) => unwrap(http.post('/admin/depo/entry', data)),
   // Depo hareket geçmişi. Filtre verilmezse backend BUGÜNÜ döner.
   getAdminDepoHistory: (params) => unwrap(http.get('/admin/depo/history', { params })),
-  listDepoReturns: (params) => unwrap(http.get('/depo/returns', { params })),
+  // Admin paneli iade listesi — /admin altında, muhasebeci de görsün diye
+  // (saha /api/depo yalnızca DEPO+ADMIN). Saha iade ekranı /depo/returns'te kalır.
+  listDepoReturns: (params) => unwrap(http.get('/admin/returns', { params })),
   // Saha iade ekranındaki "son iadeler" kutusu — düz dizi bekler
   listRecentReturns: (limit = 10) =>
     unwrap(http.get('/depo/returns', { params: { limit } })).then(asList),
-  deleteDepoReturn: (id) => unwrap(http.delete(`/depo/returns/${id}`)),
+  deleteDepoReturn: (id) => unwrap(http.delete(`/admin/returns/${id}`)),
   getAdminTransfers: (params) => unwrap(http.get('/admin/transfers', { params })),
 
   // Kasacı (case manager) paneli — /cases (CASE_MANAGER + ADMIN)

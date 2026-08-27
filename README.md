@@ -164,7 +164,7 @@ HAL_ALLOWED_IPS="127.0.0.1,HAL_STATIK_IP"
 | **ADMIN** | Tüm paneller (mal kabul, depo, çıkış, kasacı, admin) |
 | **OPERATOR** | Mal kabul + çıkış (irsaliye) |
 | **DEPO** | Depo transfer + iade kabul |
-| **ACCOUNTING** | Admin paneli (raporlar + fiyat + finans + cari) |
+| **ACCOUNTING** | Admin paneli (raporlar + fiyat + finans + cari + iade kayıtları) |
 | **CASE_MANAGER** | Kasa yönetimi paneli (bayi iadesi + bölgeye kasa verme, bakiyeler) |
 
 > Bir kullanıcı **birden fazla role** sahip olabilir (`UserRole[]`). Tek rolü olan kullanıcı `/giris` sonrası otomatik ilgili panele yönlendirilir.
@@ -318,6 +318,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/api/markets/*` | Pazar listesi (public dahil) |
 | `/api/admin/*` | Region/Producer/Product/Quality/User CRUD + raporlar + finans + iade |
 | `/api/admin/depo/history` | Depo hareket geçmişi (`ADMIN`+`ACCOUNTING`) — `Entry` + `Transfer` birleşik, yön/tarih/arama filtreli, sayfalı |
+| `/api/admin/returns` | İade **listeleme + silme** (`ADMIN`+`ACCOUNTING`). Saha `/api/depo/returns` yalnız `DEPO`+`ADMIN` — muhasebeci oradan 403 alıyordu. İade **oluşturma** burada yok: fiziksel mal kabulü, sahada tartılarak girilir |
 | `/api/admin/purchase-prices/*` | **Alış** fiyatı (genel + üretici özel). Yalnız `ADMIN`/`ACCOUNTING` — saha karşılığı **yok** |
 | `/api/admin/producer-payments/*` | Üretici bakiye/özet, hesap ekstresi, mal kabul dökümü, tek + toplu ödeme, fiyatsız liste, yeniden hesaplama |
 | `/api/public/*` | Ortak listeler (bölge, üretici, ürün) |

@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { login, me, regionCrud, producerCrud, productCrud, qualityCrud, marketCrud, userCrud } from '../controllers/adminController.js'
-import { listTransfers, listDepoEntries } from '../controllers/transferController.js'
+import { listTransfers, listDepoEntries, listReturns, deleteReturn } from '../controllers/transferController.js'
 import { createManualDepoEntry } from '../controllers/entryController.js'
 import {
   listEntries as listLedger,
@@ -161,6 +161,13 @@ router.post('/depo/entry', createManualDepoEntry)
 // gösterir. İkisi ayrı sorular; gün içinde girip çıkan mal stokta hiç görünmez.
 router.get('/depo/history', getDepoHistory)
 
+// İadeler (admin paneli /admin/iadeler) — aynı gerekçe: saha /api/depo yalnızca
+// DEPO+ADMIN'e açık, muhasebeci oradan 403 alıyordu. İADE OLUŞTURMA burada YOK
+// ve eklenmemeli: iade fiziksel mal kabulü, sahada tartılarak girilir.
+// Silme ACCOUNTING'e de açık — iade silmek cari borcu geri alıyor, bu muhasebe
+// işi (deleteLedger / deleteExit ile aynı yetki seviyesi).
+router.get('/returns', listReturns)
+router.delete('/returns/:id', deleteReturn)
 
 // Finansal cari hesap
 router.get('/ledger', listLedger)
