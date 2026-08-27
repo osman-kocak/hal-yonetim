@@ -33,6 +33,7 @@ const qtyCell = (entry) => (isCountable(entry.unit)
   ? `${Number(entry.weight)} ${unitLabel(entry.unit)}`
   : `${fmt(entry.weight)} kg`)
 
+
 // Bayi özeti alanları — IrsaliyePrint.jsx'teki ikizleriyle lockstep.
 // Sunucu göndermezse "—": 0 basmak "borcu yok" demek olurdu.
 //
@@ -174,11 +175,16 @@ export async function generateIrsaliye(exit, targetWin = null) {
   const body = (exit.items ?? []).map((item) => {
     const ppk = item.pricePerKg
     const hasPrice = ppk !== null && ppk !== undefined
+    // İndirim: PDF'te üstü çizili metin autoTable'da zahmetli, bu yüzden
+    // "70 > 50" biçimi kullanılıyor. Ekran fişi (IrsaliyePrint) aynı bilgiyi
+    // üstü çizili + ok ile basar — ikisi KİLİT ADIMLI, biri değişirse diğeri de.
+    const lst = item.listPricePerKg
+    const hasList = hasPrice && lst !== null && lst !== undefined && lst > ppk
     return [
       item.entry.product?.name ?? '—',
       item.entry.caseCount,
       qtyCell(item.entry),
-      hasPrice ? fmt(ppk) : '—',
+      hasPrice ? (hasList ? `${fmt(lst)} > ${fmt(ppk)}` : fmt(ppk)) : '—',
     ]
   })
 

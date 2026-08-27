@@ -317,6 +317,10 @@ model ExitItem {
   entry          Entry   @relation(fields: [entryId], references: [id], onDelete: Restrict)
   entryId        Int
   loaded         Boolean @default(true)
+  // İndirim öncesi fiyatın SNAPSHOT'ı. pricePerKg ile aynı gerekçe: fiyat
+  // sonradan değişse de basılmış fiş aynı indirimi göstermeli. null = o kalemde
+  // indirim yoktu.
+  listPricePerKg Float?
   pricePerKg     Float? // Exit oluşurken o anki fiyatın snapshot'ı — sonradan fiyat değişse de irsaliye tutarı sabit kalır
 
   @@unique([exitId, entryId])
@@ -342,7 +346,18 @@ model Price {
   productId      Int
   quality        Quality? @relation(fields: [qualityId], references: [id], onDelete: Cascade)
   qualityId      Int?
+  // UYGULANACAK fiyat — irsaliye HER ZAMAN bunu kullanır. İndirim varsa bu
+  // indirimli (net) tutardır. Anlamı 2026-08-26'da değişmedi: fiyat okuyan tüm
+  // kod olduğu gibi çalışmaya devam ediyor, bu yüzden yeni alan buraya değil
+  // listPricePerKg'ye eklendi.
   pricePerKg     Float
+  // NORMAL (indirim öncesi) fiyat. null = indirim yok, pricePerKg zaten normal
+  // fiyattır. Dolu olması "bu üründe indirim var" demek ve yalnız GÖSTERİM
+  // içindir — tutar hesabına girmez, fişte "70 → 50" olarak basılır.
+  //
+  // Neden ayrı kolon: muhasebeci indirimi kaldırdığında normal fiyatı yeniden
+  // yazmak zorunda kalmasın; net alanı boşaltılınca normal fiyat geri döner.
+  listPricePerKg Float?
   date           DateTime @db.Date
   createdAt      DateTime @default(now())
   updatedAt      DateTime @default(now()) @updatedAt

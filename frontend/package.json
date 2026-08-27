@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:render": "node tests/render-smoke.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

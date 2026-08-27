@@ -31,6 +31,11 @@ export function IrsaliyeSheet({ exit }) {
   const rows = (exit.items ?? []).map((item) => {
     const ppk = item.pricePerKg
     const hasPrice = ppk !== null && ppk !== undefined
+    // İndirim öncesi fiyat snapshot'ı. Dolu ve net'ten büyükse o kalemde
+    // indirim yapılmış demektir; fişte "70 → 50" basılır. Fiyat sonradan
+    // değişse de bu rakam sabit (bkz. ExitItem.listPricePerKg).
+    const lst = item.listPricePerKg
+    const hasList = hasPrice && lst !== null && lst !== undefined && lst > ppk
     return {
       id: item.id,
       name: item.entry.product?.name ?? '—',
@@ -40,6 +45,7 @@ export function IrsaliyeSheet({ exit }) {
       // basılmış fiş aynı kalmalı (bkz. Entry.unit).
       unit: item.entry.unit,
       price: hasPrice ? ppk : null,
+      listPrice: hasList ? lst : null,
     }
   })
 
@@ -115,7 +121,17 @@ export function IrsaliyeSheet({ exit }) {
                     <td className="tr">
                       {isCountable(r.unit) ? `${Number(r.weight)} ${unitLabel(r.unit)}` : `${fmt(r.weight)} kg`}
                     </td>
-                    <td className="tr">{r.price !== null ? fmt(r.price) : '—'}</td>
+                    <td className="tr">
+                      {r.price === null ? '—' : r.listPrice !== null ? (
+                        // İndirim: normal fiyat üstü çizili, net fiyat kalın.
+                        // Bayi ne kadar indirim yapıldığını fişte görsün.
+                        <>
+                          <span className="print-strike">{fmt(r.listPrice)}</span>
+                          {' → '}
+                          <strong>{fmt(r.price)}</strong>
+                        </>
+                      ) : fmt(r.price)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

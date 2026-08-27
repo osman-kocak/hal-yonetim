@@ -1,8 +1,8 @@
 import { prisma } from '../utils/prismaClient.js'
-import { getPriceMap } from './priceController.js'
+import { getPriceMaps } from './priceController.js'
 import { isSpecialMarket, findDepoMarket, DEPO_NO } from '../utils/markets.js'
 import { sumTrackedCases } from '../utils/cases.js'
-import { priceOf } from '../utils/prices.js'
+import { priceOf, listPriceOf } from '../utils/prices.js'
 import { toPriceDate } from '../utils/date.js'
 import { marketSummary } from '../utils/marketSummary.js'
 import { assertExitLock } from '../utils/exitLock.js'
@@ -46,7 +46,9 @@ export async function createExit(req, res, next) {
       return res.status(409).json({ error: `Bazı ürünler zaten irsaliye edilmiş (giriş ID: ${ids})` })
     }
 
-    const priceMap = await getPriceMap(toPriceDate())
+    // İki map: tutar net fiyattan hesaplanır, fişteki indirim satırı normal
+    // fiyattan basılır (bkz. utils/prices.js → listPriceOf).
+    const { price: priceMap, list: listMap } = await getPriceMaps(toPriceDate())
 
     // Önce entry'leri çek ki fiyat snapshot'ı items yazılırken hazır olsun
     const targetEntries = await prisma.entry.findMany({
@@ -69,6 +71,11 @@ export async function createExit(req, res, next) {
     const entryPriceMap = new Map(targetEntries.map((e) => {
       return [e.id, priceOf(priceMap, e.productId, e.qualityId)]
     }))
+    // Normal fiyat SNAPSHOT'ı — pricePerKg ile aynı gerekçe: fiyat sonradan
+    // değişse de basılmış fiş aynı indirimi göstermeli. null = indirim yoktu.
+    const entryListMap = new Map(targetEntries.map((e) => {
+      return [e.id, listPriceOf(listMap, e.productId, e.qualityId)]
+    }))
 
     const exit = await prisma.$transaction(async (tx) => {
       const created = await tx.exit.create({
@@ -80,6 +87,7 @@ export async function createExit(req, res, next) {
               entryId: Number(entryId),
               loaded: true,
               pricePerKg: entryPriceMap.get(Number(entryId)),
+              listPricePerKg: entryListMap.get(Number(entryId)) ?? null,
             })),
           },
         },
@@ -197,7 +205,7 @@ export async function updateExit(req, res, next) {
       return res.status(400).json({ error: 'Seçilen girişlerin bir kısmı bu pazara ait değil' })
     }
 
-    const priceMap = await getPriceMap(toPriceDate(existingExit.createdAt))
+    const { price: priceMap, list: listMap } = await getPriceMaps(toPriceDate(existingExit.createdAt))
     const editedBy = req.body.editedBy ?? 'Admin'
 
     // Zaten irsaliyede olan kalemlerin fiyat snapshot'ı KORUNMALI.
@@ -207,9 +215,12 @@ export async function updateExit(req, res, next) {
     // (schema.prisma: "sonradan fiyat değişse de irsaliye tutarı sabit kalır")
     const existingItems = await prisma.exitItem.findMany({
       where: { exitId: Number(id) },
-      select: { entryId: true, pricePerKg: true },
+      select: { entryId: true, pricePerKg: true, listPricePerKg: true },
     })
     const lockedPrices = new Map(existingItems.map((i) => [i.entryId, i.pricePerKg]))
+    // İndirim snapshot'ı da kilitli: düzenleme sırasında değişmemiş kalemlerin
+    // fişteki indirimi de aynı kalmalı.
+    const lockedListPrices = new Map(existingItems.map((i) => [i.entryId, i.listPricePerKg]))
 
     // İrsaliyeden çıkarılan kalemlerin malı depoya döner — pazarda bırakılırsa
     // çıkış ekranında sebebi belirsiz bekleyen kalem olarak yeniden belirir
@@ -229,6 +240,10 @@ export async function updateExit(req, res, next) {
       if (lockedPrices.has(e.id)) return [e.id, lockedPrices.get(e.id)]
       return [e.id, priceOf(priceMap, e.productId, e.qualityId)]
     }))
+    const entryListMap = new Map(targetEntries.map((e) => {
+      if (lockedListPrices.has(e.id)) return [e.id, lockedListPrices.get(e.id)]
+      return [e.id, listPriceOf(listMap, e.productId, e.qualityId)]
+    }))
 
     let returnedToDepo = 0
     const exit = await prisma.$transaction(async (tx) => {
@@ -243,6 +258,7 @@ export async function updateExit(req, res, next) {
               entryId: Number(entryId),
               loaded: true,
               pricePerKg: entryPriceMap.get(Number(entryId)),
+              listPricePerKg: entryListMap.get(Number(entryId)) ?? null,
             })),
           },
         },

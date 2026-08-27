@@ -192,6 +192,13 @@
 /* PDF'teki 8mm sabit satır yüksekliği ile aynı */
 .print-table tbody td { height: 8mm; }
 
+/* İndirimli kalemde normal fiyat üstü çizili basılır: "70 → 50".
+   Yazıcıda gri ton kaybolabildiği için renk değiştirilmedi, yalnız çizgi. */
+.print-table .print-strike {
+  text-decoration: line-through;
+  font-size: 90%;
+}
+
 .print-table .tl { text-align: left; }
 .print-table .tr { text-align: right; }
 

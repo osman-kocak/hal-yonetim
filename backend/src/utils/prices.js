@@ -44,3 +44,34 @@ export function buildPriceMap(prices) {
   }
   return map
 }
+
+// NORMAL (indirim öncesi) fiyat map'i. Aynı anahtarlama, farklı kolon.
+//
+// AYRI MAP, priceOf'un dönüşünü obje yapmak YERİNE: priceOf bugün düz bir sayı
+// döndürüyor ve irsaliye/rapor/fiş dahil her yerde öyle kullanılıyor. Dönüşü
+// değiştirmek fiyat okuyan tüm çağrı yerlerini kırardı — ve biri unutulursa
+// fatura sessizce yanlış tutardan kesilir. İndirim yalnız GÖSTERİM bilgisi
+// olduğu için ikinci bir map taşımak daha ucuz.
+export function buildListPriceMap(prices) {
+  const map = {}
+  for (const p of prices ?? []) {
+    if (p.listPricePerKg == null) continue
+    const key = p.qualityId == null
+      ? GENERAL_KEY(p.productId)
+      : QUALITY_KEY(p.productId, p.qualityId)
+    map[key] = p.listPricePerKg
+  }
+  return map
+}
+
+// Kaydın NORMAL fiyatı — yoksa null (indirim yok demek).
+// Arama sırası priceOf ile birebir aynı olmalı, yoksa fişte bir kalemin
+// indirimi başka bir kalemin fiyatıyla eşleşir.
+export function listPriceOf(listMap, productId, qualityId) {
+  if (!listMap || productId == null) return null
+  if (qualityId != null) {
+    const exact = listMap[QUALITY_KEY(productId, qualityId)]
+    if (exact != null) return exact
+  }
+  return listMap[GENERAL_KEY(productId)] ?? null
+}

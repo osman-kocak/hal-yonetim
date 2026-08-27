@@ -1,7 +1,7 @@
 import { prisma } from '../utils/prismaClient.js'
 import { audit } from '../utils/audit.js'
 import { toPriceDate, localDateString } from '../utils/date.js'
-import { buildPriceMap } from '../utils/prices.js'
+import { buildPriceMap, buildListPriceMap } from '../utils/prices.js'
 
 // Belirli bir gün için GEÇERLİ fiyat satırları. Genel fiyatlarda quality null döner.
 //
@@ -39,7 +39,7 @@ export async function getPrices(req, res, next) {
 // — geçmiş düzeltmeleri hâlâ mümkün olsun diye kapatılmadı.
 export async function upsertPrice(req, res, next) {
   try {
-    const { productId, qualityId, pricePerKg, date, updatedBy } = req.body
+    const { productId, qualityId, pricePerKg, listPricePerKg, date, updatedBy } = req.body
     if (!productId || pricePerKg === undefined || pricePerKg === null) {
       return res.status(400).json({ error: 'productId ve pricePerKg zorunludur' })
     }
@@ -53,6 +53,28 @@ export async function upsertPrice(req, res, next) {
     const pid = Number(productId)
     const qid = qualityId == null || qualityId === '' ? null : Number(qualityId)
 
+    // NORMAL (indirim öncesi) fiyat. Boş/null → indirim yok.
+    //
+    // pricePerKg her zaman UYGULANACAK tutardır; listPricePerKg yalnız gösterim
+    // için. Normal fiyat uygulanandan düşükse bu bir indirim değil zamdır ve
+    // kullanıcı iki alanı karıştırmıştır — sessizce kabul edilirse fişte
+    // "50 → 70" gibi anlamsız bir satır basılır.
+    let listValue = null
+    if (listPricePerKg !== undefined && listPricePerKg !== null && listPricePerKg !== '') {
+      listValue = Number(listPricePerKg)
+      if (!Number.isFinite(listValue) || listValue < 0) {
+        return res.status(400).json({ error: 'Normal fiyat sıfır veya pozitif bir sayı olmalıdır' })
+      }
+      // Eşitse indirim yok demektir — null'a düşür ki fişte gereksiz "70 → 70"
+      // basılmasın ve raporlarda sahte indirim görünmesin.
+      if (listValue === priceValue) listValue = null
+      else if (listValue < priceValue) {
+        return res.status(400).json({
+          error: `Normal fiyat (${listValue}) net fiyattan (${priceValue}) düşük olamaz — alanları karıştırmış olabilirsiniz`,
+        })
+      }
+    }
+
     // prisma.upsert KULLANILAMAZ genel fiyatta: compound unique'in bir kolonu
     // null olduğunda Prisma o where'i kabul etmiyor (ve Postgres'te NULL'lu
     // unique zaten eşleşmiyor). Tekilliği migration'daki partial index koruyor;
@@ -65,11 +87,11 @@ export async function upsertPrice(req, res, next) {
     const saved = existing
       ? await prisma.price.update({
         where: { id: existing.id },
-        data: { pricePerKg: priceValue, updatedBy: updatedBy ?? null },
+        data: { pricePerKg: priceValue, listPricePerKg: listValue, updatedBy: updatedBy ?? null },
         include: { product: true, quality: true },
       })
       : await prisma.price.create({
-        data: { productId: pid, qualityId: qid, pricePerKg: priceValue, date: day, updatedBy: updatedBy ?? null },
+        data: { productId: pid, qualityId: qid, pricePerKg: priceValue, listPricePerKg: listValue, date: day, updatedBy: updatedBy ?? null },
         include: { product: true, quality: true },
       })
     // Fiyat irsaliye tutarını doğrudan etkiliyor: değişiklik izlenebilir olmalı.
@@ -78,7 +100,8 @@ export async function upsertPrice(req, res, next) {
       action: existing ? 'UPDATE' : 'CREATE',
       resource: 'price',
       recordId: saved.id,
-      detail: `${saved.product?.name ?? 'Ürün'} · ${saved.pricePerKg} TL`,
+      detail: `${saved.product?.name ?? 'Ürün'} · ${saved.pricePerKg} TL`
+        + (saved.listPricePerKg != null ? ` (normal ${saved.listPricePerKg} TL — indirimli)` : ''),
     })
     res.json(saved)
   } catch (err) {
@@ -124,6 +147,16 @@ export async function getPriceMap(date) {
   return buildPriceMap(rows)
 }
 
+// Hem uygulanan hem normal fiyat map'i — irsaliye kesilirken ikisi de lazım:
+// tutar net'ten hesaplanır, fişe indirim satırı normal fiyattan basılır.
+// Tek sorgu, iki map (aynı satırlardan türetiliyor).
+export async function getPriceMaps(date) {
+  const day = toDay(date ?? new Date())
+  if (!day) return { price: {}, list: {} }
+  const rows = await effectivePriceRows(day)
+  return { price: buildPriceMap(rows), list: buildListPriceMap(rows) }
+}
+
 // O tarihte GEÇERLİ fiyat satırları — her (ürün, kalite) çifti için bir satır.
 //
 // Fiyat, YAZILDIĞI GÜNE değil DEĞİŞTİRİLENE KADAR geçerlidir. Eskiden okuma
@@ -143,7 +176,7 @@ export async function getPriceMap(date) {
 async function effectivePriceRows(day) {
   return prisma.$queryRaw`
     SELECT DISTINCT ON ("productId", "qualityId")
-      id, "productId", "qualityId", "pricePerKg"
+      id, "productId", "qualityId", "pricePerKg", "listPricePerKg"
     FROM "Price"
     WHERE date <= ${toDayString(day)}::date
     ORDER BY "productId", "qualityId", date DESC

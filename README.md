@@ -14,6 +14,7 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 📦 **Depo yönetimi** — Ürün bazlı toplu transfer (FIFO mantığı + parçalı kasa ayırma/split, bağ ürünlerde adet ekseninde). Hedef pazar mal kabuldeki gibi **numara yazılarak** seçilir
 - ↔️ **Pazardan pazara aktarma** — Yanlış pazara yazılan kalem, irsaliye kesilmeden önce çıkış ekranından doğru pazara aktarılır; geri alınabilir, kasa/cari hesap etkilenmez
 - 📋 **Çıkış & Teslim Fişi** — iPad'de PDF → AirPrint, masaüstünde doğrudan yazdırma; fiyat snapshot (fiş sonradan fiyat değişse de sabit kalır)
+- 🏷️ **İndirimli satış fiyatı** — `/admin/fiyatlar` satış sekmesinde iki alan: **Normal Fiyat** (indirim öncesi) ve **Net Fiyat** (fatura bundan kesilir). Normal boşsa indirim yok, tek fiyat geçerli. Dolu ve net'ten büyükse teslim fişinde **"70 → 50"** olarak basılır (normal fiyat üstü çizili) — bayi indirimi görür, fatura yine net tutardan hesaplanır. `Price.listPricePerKg` yalnız GÖSTERİM: `pricePerKg` anlamını korudu (uygulanacak tutar), bu yüzden fiyat okuyan hiçbir kod değişmedi. `ExitItem.listPricePerKg` snapshot'lanır, fiyat sonradan değişse eski fiş aynı indirimi gösterir. İndirim carry-forward'a tabi (değiştirilene kadar geçerli) ve tüm bayilere uygulanır. Normal < net girilirse 400 döner (alanlar karıştırılmış demektir), normal = net girilirse indirim yok sayılır — sahte "%0 indirim" basılmaz
 - 💵 **Ürün başına tek fiyat** — `/admin/fiyatlar` ürün × kalite matrisiydi, artık tek sütun. Kalite özelliği kullanımdan kalktı: mal kabul ekranı zaten `qualityId` göndermiyordu, kaliteli fiyat satırları saha girişleriyle **hiç eşleşmiyor** ve irsaliyede fiyat boş kalıyordu. Eski kaliteli satırlar duruyor ve aramada hâlâ öncelikli (`priceOf()`: önce ürün+kalite, yoksa genel fiyat)
 - 🔄 **İade kabul** — Ayrı ekran (`/iade`): depoya al, başka pazara yolla **veya** imha et (atomic: Entry + Ledger + CaseMovement)
 - 💰 **Çoklu rol kullanıcı sistemi** — `ADMIN`, `DEPO`, `OPERATOR`, `ACCOUNTING`, `CASE_MANAGER`
@@ -336,7 +337,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/iade` | DEPO, ADMIN | Bayiden mal iadesi (depoya / başka pazara / imha) + son iadeler |
 | `/kasaci` | CASE_MANAGER, ADMIN | Kasa hareketleri |
 | `/admin` | ADMIN, ACCOUNTING | Dashboard |
-| `/admin/fiyatlar` | ADMIN, ACC. | Günlük fiyat girişi — 3 sekme: satış · alış · üretici özel fiyatı (+ marj kolonu) |
+| `/admin/fiyatlar` | ADMIN, ACC. | Günlük fiyat girişi — 3 sekme: satış (normal + net/indirimli) · alış · üretici özel fiyatı (+ marj kolonu) |
 | `/admin/finans` | ADMIN, ACC. | Bayi alacak / Üretici borç cari — **ham defter** (elle düzeltme, açılış devri) |
 | `/admin/uretici-odeme` | ADMIN, ACC. | Üretici ödeme paneli (bakiye, ekstre, mal kabul dökümü, tek/toplu ödeme, makbuz) |
 | `/admin/takip` | ADMIN, ACC. | Geçmiş hareket logu |
@@ -369,7 +370,7 @@ Ana entity'ler:
 - **Transfer** — Pazardan pazara taşıma geçmişi
 - **PurchasePrice** — Günlük **alış** fiyatı (üreticiye ödenen). `Price`'ın eşi ve ondan tamamen bağımsız; kalite kolonu **yok** (bilinçli — `Price`'taki nullable-unique tuzağı tekrarlanmasın diye, bu yüzden `@@unique(productId, date)` gerçek unique ve `prisma.upsert` çalışıyor). Carry-forward aynı: fiyat değiştirilene kadar geçerli
 - **ProducerPrice** — Üretici + ürün + gün özel alış fiyatı; katmanların en üstü, varsa prim uygulanmaz. `cancelled` → özel fiyatı kaldırmanın **tek doğru yolu**: satır silinseydi carry-forward bir önceki fiyatı diriltir ve "kaldırdım" denen rakam geri gelirdi
-- **Price** — Günlük fiyat. `qualityId` **nullable**: NULL = ürünün genel fiyatı (yeni standart, kalite kullanımdan kalktı), dolu = eski kaliteli satır. Arama iki katmanlı — önce ürün+kalite, yoksa genel: **tek karar noktası [`backend/src/utils/prices.js`](backend/src/utils/prices.js) → `priceOf()`**. Genel fiyatın tekilliğini partial unique index sağlar; `@@unique` NULL'lu satırları kapsamaz (Postgres'te iki NULL eşit sayılmaz)
+- **Price** — Günlük **satış** fiyatı. `pricePerKg` = UYGULANACAK tutar (indirim varsa indirimli), `listPricePerKg` = normal/indirim öncesi fiyat, null ise indirim yok. DB'de CHECK constraint `listPricePerKg >= pricePerKg` zorluyor. `qualityId` **nullable**: NULL = ürünün genel fiyatı (yeni standart, kalite kullanımdan kalktı), dolu = eski kaliteli satır. Arama iki katmanlı — önce ürün+kalite, yoksa genel: **tek karar noktası [`backend/src/utils/prices.js`](backend/src/utils/prices.js) → `priceOf()`**. Genel fiyatın tekilliğini partial unique index sağlar; `@@unique` NULL'lu satırları kapsamaz (Postgres'te iki NULL eşit sayılmaz)
 - **LedgerEntry** — Bayi/üretici cari hesap kaydı (`MARKET_INVOICE`, `PAYMENT`, `ADJUSTMENT`, …). `entryId` **unique + cascade** → `PRODUCER_DEBT`'i doğduğu mal kabule bağlar (`exitId`'nin üretici tarafındaki aynası): bir giriş en fazla bir borç doğurur (offline retry'a karşı ikinci savunma hattı), giriş silinince borç da düşer, ve dolu `entryId` "bu kayıt otomatik" demek — elle silinemez. `paymentMethod` (`CASH`/`TRANSFER`/`CHECK`) yalnız `*_PAYMENT` tiplerinde dolar, DB'de CHECK constraint zorluyor. Bakiye kolonu **yok**, `signFor()` + `groupBy` ile hesaplanır
 - **CaseMovement** — Boş kasa hareketi. Bayi tarafı (`MARKET_OUT/IN/INIT/ADJUST`, `marketId`) ve bölge tarafı (`REGION_OUT/IN/ADJUST`, `regionId`). `REGION_IN` mal kabulle otomatik doğar, `entryId` ile girişe bağlıdır (unique + cascade). **Hangi kaydın kasa hesabına gireceğine tek yer karar verir: [`backend/src/utils/cases.js`](backend/src/utils/cases.js) → `trackedCases()`** — yalnızca siyah/karton kasa 0 döner; birim karışmaz (2026-08-13'te değişti, önce `BUNCH` da 0 dönüyordu)
 - **ReturnRecord** — Bayiden iade (atomic Entry + Ledger + CaseMovement bağlar)
@@ -477,6 +478,14 @@ olarak yazılır.
 ---
 
 ## 🧪 Manuel Test Checklist
+
+### İndirimli Satış
+- [ ] Satış sekmesinde normal 70 / net 50 gir → listede "%29 indirim" rozeti çıktı
+- [ ] O üründen irsaliye kes → bayi borcu **net** fiyattan hesaplandı (normal fiyat faturayı şişirmedi)
+- [ ] Teslim fişinde (ekran + PDF) o kalem **"70 → 50"**, indirimsiz kalem tek rakam
+- [ ] Normal fiyatı boşalt → indirim kalktı, fişte tek rakam
+- [ ] Normal (50) < net (70) gir → hata mesajı çıktı, kaydedilmedi
+- [ ] Fiyatı değiştir → eski irsaliye fişi hâlâ eski indirimi gösteriyor
 
 ### Üretici Ödeme / Alış Fiyatı
 - [ ] `/admin/fiyatlar` → Alış sekmesinde fiyat gir → mal kabul yap → üreticinin bakiyesi doğru arttı
