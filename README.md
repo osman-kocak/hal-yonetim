@@ -11,6 +11,7 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - 📍 **Mal kabul akışı** — Bölge → Üretici → Ürün → Kasa/Kilo girişi (adım adım onboarding)
 - ⚖️ **Üç satış birimi** — `Product.unit`: **Kilo** (`CASE`, tartılır), **Bağ** (`BUNCH`: maydanoz, marul, roka…) ve **Adet** (`PIECE`). Birim yalnızca **miktar eksenini** belirler: miktar her birimde `weight` kolonunda durur (kg / bağ / adet) ve fiyat o birimin fiyatıdır (₺/kg, ₺/bağ, ₺/adet). Toplamlar üç ayrı kovada tutulur — bağ ile adet toplanabilir sayı değil. Birim `Entry.unit`'e snapshot'lanır; ürünün birimi sonradan değişse de geçmiş irsaliye/rapor anlamını korur
 - 🗑️ **Siyah/Karton kasa** — **Kasa sayımının tek belirleyicisi.** Tek kullanımlık kasada gelen mal işaretlenir (`Entry.disposableCase`) ve kasası hiçbir bakiyeye girmez (ne bölge, ne bayi, ne iade). İşaretlenmediyse kasa üç birimde de sayılır — bağ/adet malı da geri dönen kasayla geliyor. Zayıf Mal'dan bağımsız, ikisi birlikte seçilebilir
+- ⚖️ **Kasa darası** — Mal dolu kasasıyla tartılıyor: operatörün yazdığı kilo **BRÜT**, kayda **NET** yazılır (`weight = brüt − kasa adedi × 2 kg`). Yalnız **kilolu üründe** (`CASE`) ve yalnız **normal kasada**; siyah/karton kasa (`disposableCase`) malla birlikte gidiyor ve tartıda karşılığı yok, bağ/adette ise `weight` kolonu sayı tutuyor. Net'in `weight`'e yazılmasının nedeni: fiyat, üretici borcu, bayi faturası, teslim fişi, stok ve raporların **tamamı** bu kolonu okuyor — brütü bırakıp her hesapta ayrı ayrı düşmek, bir çağrı yeri unutulduğunda faturayı sessizce yanlış tutardan keserdi. Brüt ve düşülen dara `Entry.grossWeight` / `Entry.tareKg`'de **iz** olarak durur (snapshot: oran değişse de geçmiş sabit kalır). Dara brütü aşarsa kayıt **reddedilir** (400) — sıfır/eksi kilo stoku ve cariyi anlamsız kılar. Ekranda kaydetmeden önce canlı önizleme var. Uygulandığı yerler: saha mal kabul, ofis/depo elle giriş, bayi iadesi ve kilo düzeltmesi. Tek karar noktası: [`backend/src/utils/tare.js`](backend/src/utils/tare.js) → `applyTare()` (frontend kopyası YALNIZ önizleme için, kilit adımlı). **Geçmiş kayıtlar ellenmedi**: bir kısmı faturalanmış, bir kısmı ödenmiş
 - 📦 **Depo yönetimi** — Ürün bazlı toplu transfer (FIFO mantığı + parçalı kasa ayırma/split, bağ ürünlerde adet ekseninde). Hedef pazar mal kabuldeki gibi **numara yazılarak** seçilir
 - 🏬 **Depo giriş-çıkış geçmişi** — `/admin/depo` → **Geçmiş** sekmesi: bir günde depoya ne girdi, ne çıktı ve **kim yaptı**. Stok sekmesi bu soruyu CEVAPLAYAMAZ — `Entry.marketId` canlı konum alanı olduğu için depodan çıkan mal stok listesinden tamamen kaybolur, yani gün içinde girip aynı gün çıkan mal hiç olmamış gibi görünür. Uç, `Entry` ve `Transfer` tablolarını **tek zaman çizelgesinde birleştirir**: doğrudan depo girişleri (saha mal kabulü, ofis girişi, iade) `Transfer` satırı doğurmaz, yalnız transferlere bakmak bu hareketleri kaçırırdı. Bir girişin **kaynağı** en eski `Transfer.fromMarketId`'den, o yoksa güncel `marketId`'den çözülür. Kasa adedi `Entry.purchaseCases` snapshot'ından okunur (`caseCount` kısmî transferde parçadan düşülüyor, geçmiş sessizce eksik toplardı). Tarih aralığı, yön (giriş/çıkış), metin araması, sayfalama ve Excel/PDF export var
 - ↔️ **Pazardan pazara aktarma** — Yanlış pazara yazılan kalem, irsaliye kesilmeden önce çıkış ekranından doğru pazara aktarılır; geri alınabilir, kasa/cari hesap etkilenmez
@@ -368,7 +369,7 @@ Ana entity'ler:
 - **RegionSession** — Bir bölgenin gün içi mal kabul oturumu (`ACTIVE`/`COMPLETED`)
 - **Product / Quality** — Ürün ve kalite katalog (`Product.groupName` → ana ürün gruplaması, nullable). `Product.unit: ProductUnit` (`CASE`/`BUNCH`/`PIECE`) → satış birimi (kilo / bağ / adet). **Quality kullanımdan kalktı** (2026-08-13): mal kabul zaten kalite göndermiyordu, fiyat ürün başına tek. Tablo ve `Entry.qualityId`/`ReturnRecord.qualityId` alanları geçmiş kayıtlar için duruyor
 - **Market** — Pazar/bayi (`no` unique numara)
-- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `purchasePricePerKg` / `purchasePriceSource` / `purchaseQty` → mal kabul anındaki **alış snapshot'ı**; borç bunlardan hesaplanır, `weight`'ten değil (transferde yeniden tartılıp değişebiliyor). Bu üç kolon **ticari sır**, saha yanıtlarından `middleware/purchaseGuard.js` ile silinir. `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti, `bQuality` ikinci kalite işareti (**yalnızca etiket** — kasa hesabına ve fiyata karışmaz). `disposableCase` ve `bQuality` satır bazında ayarlanabilir: mal kabulde üstteki tik partinin tamamına uygulanır, kart üzerindeki işaret tek satırı ayrıştırır
+- **Entry** — Mal kabul kaydı (Product + Producer + Quality + Market + kasa/miktar). `weight` kiloda **NET**'tir (kasa darası düşülmüş); `grossWeight` / `tareKg` tartım anının izidir, `NULL` ise o satıra dara uygulanmamıştır. `purchasePricePerKg` / `purchasePriceSource` / `purchaseQty` → mal kabul anındaki **alış snapshot'ı**; borç bunlardan hesaplanır, `weight`'ten değil (transferde yeniden tartılıp değişebiliyor). Bu üç kolon **ticari sır**, saha yanıtlarından `middleware/purchaseGuard.js` ile silinir. `source: EntrySource` (`HARVEST`/`RETURN`/`DISCARD`) — raporlar yalnızca `HARVEST` sayar. `unit` birim snapshot'ı, `disposableCase` tek kullanımlık kasa işareti, `bQuality` ikinci kalite işareti (**yalnızca etiket** — kasa hesabına ve fiyata karışmaz). `disposableCase` ve `bQuality` satır bazında ayarlanabilir: mal kabulde üstteki tik partinin tamamına uygulanır, kart üzerindeki işaret tek satırı ayrıştırır
 - **Exit / ExitItem** — İrsaliye + içerdiği Entry'ler (fiyat snapshot)
 - **Transfer** — Pazardan pazara taşıma geçmişi
 - **PurchasePrice** — Günlük **alış** fiyatı (üreticiye ödenen). `Price`'ın eşi ve ondan tamamen bağımsız; kalite kolonu **yok** (bilinçli — `Price`'taki nullable-unique tuzağı tekrarlanmasın diye, bu yüzden `@@unique(productId, date)` gerçek unique ve `prisma.upsert` çalışıyor). Carry-forward aynı: fiyat değiştirilene kadar geçerli
@@ -516,6 +517,20 @@ olarak yazılır.
 - [ ] Bayiden iade → GİRİŞ satırı; imha → ÇIKIŞ satırı
 - [ ] Tarih aralığı boş bırakılınca **bugün** geliyor; yön filtresi ve arama çalışıyor
 - [ ] Export alındığında `AuditLog`'a `EXPORT` kaydı düştü (`depo-history`)
+
+### Kasa Darası
+- [ ] 10 kasa · 100 kg gir (siyah kasa TİKSİZ) → ekranda "100 − (10 × 2 kg dara) = 80 kg net" belirdi
+- [ ] Kaydet → listede **80 kg** yazıyor, altında "brüt 100 − 20 dara"
+- [ ] Üreticinin bakiyesi **80 kg** üzerinden arttı (100 üzerinden değil)
+- [ ] Aynı girişi **siyah kasa tikli** yap → dara düşülmedi, 100 kg kaldı
+- [ ] Bağ/adet ürününde miktar aynen kaldı, dara satırı hiç çıkmadı
+- [ ] Kasasız (0 kasa) kilolu giriş → dara yok
+- [ ] 10 kasa · 15 kg gir → **hata**, kayıt oluşmadı
+- [ ] Kaydı düzenle, hiçbir şeyi değiştirmeden Kaydet → kilo **80'de kaldı** (60'a düşmedi)
+- [ ] Düzenlemede kasayı 5 yap → 90 kg oldu ve üretici borcu senkronlandı
+- [ ] Düzenlemede siyah kasayı işaretle → kilo brüte (100) döndü
+- [ ] Bayiden 4 kasa · 40 kg iade al → 32 kg kaydedildi, bayinin borcundan **net** tutar düşüldü
+- [ ] Depo elle girişte de dara düşülüyor
 
 ### Mal Kabul
 - [ ] Bölge seç → bölge oturumu açılır

@@ -10,6 +10,7 @@ import { ExportButton } from '@/components/ui/ExportButton'
 import { Segmented } from '@/components/ui/Segmented'
 import { DepoHistoryTab } from './Depo/DepoHistoryTab'
 import { formatDate, formatWeight, formatQty, isCountable, qtyLabel, sumQty, unitLabel } from '@/utils/formatters'
+import { TARE_PER_CASE_KG, previewTare } from '@/utils/tare'
 import { Boxes, RefreshCw, Plus, AlertTriangle, Package, Search, History } from 'lucide-react'
 
 // İKİ SEKME: stok "şu an depoda ne var", geçmiş "ne girdi / ne çıktı, kim yaptı".
@@ -255,6 +256,13 @@ function ManualEntryModal({ open, onClose, onSaved }) {
 
   const unit = products.find((p) => String(p.id) === String(form.productId))?.unit
   const countable = isCountable(unit)
+  // Kasa darası önizlemesi — saha mal kabulüyle aynı kural (utils/tare.js).
+  const dara = previewTare({
+    unit,
+    caseCount: form.caseCount,
+    disposableCase: form.disposableCase,
+    weight: form.weight,
+  })
   const set = (patch) => { setForm((f) => ({ ...f, ...patch })); setError('') }
 
   async function handleSave() {
@@ -269,6 +277,11 @@ function ManualEntryModal({ open, onClose, onSaved }) {
       const c = Number(form.caseCount)
       if (!Number.isInteger(c) || c < 1) { setError('Kasa adedi pozitif tam sayı olmalı'); return }
       if (!Number.isFinite(w) || w <= 0) { setError('Kilo pozitif olmalı'); return }
+    }
+    // Sunucu da aynı kuralı uyguluyor (utils/tare.js); burada durdurmak
+    // muhasebeciye hatayı kayıt denemesinden önce gösteriyor.
+    if (dara.gecersiz) {
+      setError(`${dara.tare} kg dara, girilen ${dara.gross} kg'a eşit veya fazla`); return
     }
     setSaving(true)
     try {
@@ -346,6 +359,15 @@ function ManualEntryModal({ open, onClose, onSaved }) {
               placeholder="0"
               className="w-full px-4 py-3 rounded-xl border border-border bg-white text-base tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
             />
+            {/* Girilen kilo BRÜT, kayda net yazılır — bkz. utils/tare.js */}
+            {dara.uygulandi && (
+              dara.gecersiz
+                ? <p className="text-xs font-semibold text-error mt-1">{dara.tare} kg dara, girilen kilodan fazla</p>
+                : <p className="text-xs text-text-secondary mt-1 tabular-nums">
+                    {dara.gross} − ({Number(form.caseCount)} × {TARE_PER_CASE_KG} kg dara) ={' '}
+                    <strong className="text-primary">{dara.net} kg net</strong>
+                  </p>
+            )}
           </div>
         </div>
 

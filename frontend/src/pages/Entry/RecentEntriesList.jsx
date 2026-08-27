@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, MarketAutocomplete } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { formatDate, formatWeight } from '@/utils/formatters'
+import { TARE_PER_CASE_KG, previewTare } from '@/utils/tare'
 import { Pencil, AlertTriangle, ChevronDown, ChevronUp, Trash2, Package, Layers } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 
@@ -139,7 +140,17 @@ export function RecentEntriesList({ sessionId }) {
                       )}
                     </td>
                     <td className="p-2 sm:p-3 text-right tabular-nums font-semibold">{e.caseCount}</td>
-                    <td className="p-2 sm:p-3 text-right tabular-nums">{formatWeight(e.weight)}</td>
+                    <td className="p-2 sm:p-3 text-right tabular-nums">
+                      {formatWeight(e.weight)}
+                      {/* Listede NET yazıyor. Operatör kendi yazdığı rakamı
+                          bulamazsa "sistem kilomu yedi" der — brüt/dara farkı
+                          burada görünmeli. */}
+                      {e.tareKg > 0 && (
+                        <span className="block text-[10px] text-text-muted">
+                          brüt {formatWeight(e.grossWeight)} − {e.tareKg} dara
+                        </span>
+                      )}
+                    </td>
                     <td className="p-3 text-text-muted text-xs whitespace-nowrap hidden lg:table-cell">
                       {formatDate(e.createdAt)}
                     </td>
@@ -207,10 +218,23 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
   const [error, setError] = useState('')
   const addToast = useToastStore((s) => s.addToast)
 
+  // Dara, kaydın KENDİ birim snapshot'ından hesaplanır — ürün sonradan bağa
+  // çevrilse bile bu satır kiloyla girilmişti (bkz. updateEntry).
+  const dara = previewTare({
+    unit: entry?.unit,
+    caseCount,
+    disposableCase,
+    weight,
+  })
+
   useEffect(() => {
     if (entry) {
       setCaseCount(String(entry.caseCount ?? ''))
-      setWeight(String(entry.weight ?? ''))
+      // BRÜT yükleniyor, net DEĞİL. entry.weight kasa darası düşülmüş halidir;
+      // onu forma koyup geri göndermek sunucuda darayı İKİNCİ KEZ düşürürdü —
+      // kullanıcı hiçbir şey değiştirmeden Kaydet'e bassa bile kilo erirdi.
+      // grossWeight null = o satıra dara uygulanmamış, weight zaten brüt.
+      setWeight(String(entry.grossWeight ?? entry.weight ?? ''))
       setMarketId(entry.marketId)
       setMarketQuery(entry.market ? (entry.market.no === 0 ? 'Depo' : String(entry.market.no)) : '')
       setWeak(!!entry.weak)
@@ -226,6 +250,9 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
     const w = Number(weight)
     if (!Number.isInteger(c) || c < 1) { setError('Kasa adedi pozitif tam sayı olmalı'); return }
     if (!Number.isFinite(w) || w <= 0) { setError('Ağırlık pozitif olmalı'); return }
+    if (dara.gecersiz) {
+      setError(`${dara.tare} kg dara, girilen ${dara.gross} kg'a eşit veya fazla`); return
+    }
     if (!marketId) { setError('Pazar seçilmeli'); return }
     setSaving(true)
     try {
@@ -268,7 +295,7 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
               onChange={(e) => setCaseCount(e.target.value.replace(/\D/g, ''))}
             />
             <Input
-              label="Kilo (kg)"
+              label={dara.uygulandi ? 'Kilo — BRÜT (kg)' : 'Kilo (kg)'}
               type="number"
               inputMode="decimal"
               step="0.01"
@@ -277,6 +304,15 @@ function EditEntryModal({ entry, markets, onClose, onSaved }) {
               onChange={(e) => setWeight(e.target.value)}
             />
           </div>
+          {/* Alan brüt tutuyor, kayda net yazılıyor (bkz. utils/tare.js). */}
+          {dara.uygulandi && (
+            dara.gecersiz
+              ? <p className="text-xs font-semibold text-error">{dara.tare} kg dara, girilen kilodan fazla</p>
+              : <p className="text-xs text-text-secondary tabular-nums">
+                  {dara.gross} − ({Number(caseCount)} × {TARE_PER_CASE_KG} kg dara) ={' '}
+                  <strong className="text-primary">{dara.net} kg net</strong>
+                </p>
+          )}
 
           <MarketAutocomplete
             label="Pazar"

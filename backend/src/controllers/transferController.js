@@ -7,6 +7,7 @@ import {
 import { trackedCases } from '../utils/cases.js'
 import { isCountable, normalizeUnit, unitLabel } from '../utils/units.js'
 import { priceOf } from '../utils/prices.js'
+import { applyTare } from '../utils/tare.js'
 import { toPriceDate, startOfLocalDay, endOfLocalDay, clampClientTime } from '../utils/date.js'
 import { parsePagination, paginated } from '../utils/pagination.js'
 
@@ -715,6 +716,14 @@ async function prepareReturnRow(row, { market, depoMarket, discardMarket, prefix
     if (!Number.isFinite(w) || w <= 0) throw httpError(400, `${prefix}Ağırlık pozitif olmalı`)
   }
 
+  // ——— KASA DARASI ———
+  // İade de fiziksel bir tartım: bayi malı kasasıyla getiriyor. Düşülmezse
+  // bayinin borcundan kasa ağırlığı kadar FAZLA düşülür (amount aşağıda net
+  // üzerinden hesaplanıyor) ve depoya girmeyen kilo stoka yazılır.
+  // Mal kabul akışlarıyla aynı tek karar noktası: utils/tare.js
+  const dara = applyTare({ unit: product.unit, caseCount: c, disposableCase, weight: w })
+  if (dara.error) throw httpError(400, `${prefix}${dara.error}`)
+
   // Hedef pazarı belirle
   let targetMarket
   if (dest === 'DEPO') {
@@ -749,8 +758,13 @@ async function prepareReturnRow(row, { market, depoMarket, discardMarket, prefix
   if (!Number.isFinite(unitPrice) || unitPrice < 0) throw httpError(400, `${prefix}Fiyat geçersiz`)
 
   return {
-    product, countable, dest, targetMarket, c, w, unitPrice, priceMissing,
-    amount: Math.round(unitPrice * w * 100) / 100,
+    product, countable, dest, targetMarket, c, unitPrice, priceMissing,
+    // w artık NET — bu noktadan sonrası (Entry, ReturnRecord, tutar, not
+    // metinleri) hep net okur. Brüt yalnız iz olarak taşınıyor.
+    w: dara.net,
+    gross: dara.tare > 0 ? dara.gross : null,
+    tare: dara.tare > 0 ? dara.tare : null,
+    amount: Math.round(unitPrice * dara.net * 100) / 100,
     weak: !!weak,
     disposableCase: !!disposableCase,
     qualityId: qualityId ? Number(qualityId) : null,
@@ -778,7 +792,9 @@ async function writeReturnRow(tx, p, { market, createdBy, occurredAt = new Date(
       // Buraya üretici yazmak isteyen biri önce o borç yazımını okumalı.
       producerId: null,
       caseCount: p.c,
-      weight: p.w,
+      weight: p.w, // NET — kasa darası prepareReturnRow'da düşüldü
+      grossWeight: p.gross,
+      tareKg: p.tare,
       unit: p.product.unit,
       weak: p.weak,
       disposableCase: p.disposableCase,

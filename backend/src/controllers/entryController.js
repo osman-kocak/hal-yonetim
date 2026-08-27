@@ -4,6 +4,7 @@ import { trackedCases } from '../utils/cases.js'
 import { isCountable, unitLabel, formatQty } from '../utils/units.js'
 import { DISCARD_NO, findDepoMarket } from '../utils/markets.js'
 import { round2 } from '../utils/money.js'
+import { applyTare } from '../utils/tare.js'
 import { purchasePriceOf } from '../utils/purchasePrices.js'
 import { getPurchasePriceMap } from './purchasePriceController.js'
 import { clampClientTime, toPriceDate } from '../utils/date.js'
@@ -147,7 +148,13 @@ export async function updateEntry(req, res, next) {
 
     // Validation
     const newCaseCount = caseCount != null ? Number(caseCount) : entry.caseCount
-    const newWeight = weight != null ? Number(weight) : entry.weight
+    // Düzeltmede girilen kilo BRÜT'tür — ekranda da brüt gösteriliyor.
+    //
+    // Kilo GÖNDERİLMEDİYSE (örneğin yalnız siyah kasa tiki ya da kasa adedi
+    // değiştirildiyse) baseline kaydın kendi grossWeight'i olmalı: entry.weight
+    // zaten NET, ondan tekrar dara düşmek darayı İKİ KEZ uygulardı. grossWeight
+    // null ise o satıra hiç dara uygulanmamış demektir, weight brüte eşittir.
+    const newGross = weight != null ? Number(weight) : (entry.grossWeight ?? entry.weight)
     const newWeak = typeof weak === 'boolean' ? weak : entry.weak
     const newDisposable = typeof disposableCase === 'boolean' ? disposableCase : entry.disposableCase
     // B kalite kasa hareketini etkilemez (bkz. utils/cases.js) — bu yüzden
@@ -161,7 +168,7 @@ export async function updateEntry(req, res, next) {
     if (countable) {
       // Bağ/adette miktar bölünmez. Kasa OPSİYONEL: mal kasayla da gelebilir
       // (o zaman sayılır), çuvalla/kasasız da (0 girilir).
-      if (!Number.isInteger(newWeight) || newWeight < 1) {
+      if (!Number.isInteger(newGross) || newGross < 1) {
         return res.status(400).json({ error: `${unitLabel(entry.unit)} miktarı pozitif tam sayı olmalı` })
       }
       if (!Number.isInteger(newCaseCount) || newCaseCount < 0) {
@@ -171,10 +178,24 @@ export async function updateEntry(req, res, next) {
       if (!Number.isInteger(newCaseCount) || newCaseCount < 1) {
         return res.status(400).json({ error: 'Kasa adedi pozitif tam sayı olmalı' })
       }
-      if (!Number.isFinite(newWeight) || newWeight <= 0) {
+      if (!Number.isFinite(newGross) || newGross <= 0) {
         return res.status(400).json({ error: 'Ağırlık pozitif olmalı' })
       }
     }
+
+    // Dara yeniden hesaplanır: kasa adedi ya da siyah kasa tiki değişmişse
+    // düşülecek miktar da değişir. Siyah kasa işaretlenirse dara tamamen
+    // kalkar ve kayıt brüte döner — utils/tare.js tek karar noktası.
+    const dara = applyTare({
+      unit: entry.unit,
+      caseCount: newCaseCount,
+      disposableCase: newDisposable,
+      weight: newGross,
+    })
+    if (dara.error) return res.status(400).json({ error: dara.error })
+    // Bu noktadan sonrası NET ile çalışır: stok, üretici borcu ve mal kabul
+    // dökümü hep net okur.
+    const newWeight = dara.net
 
     const disposableChanged = newDisposable !== entry.disposableCase
 
@@ -184,6 +205,10 @@ export async function updateEntry(req, res, next) {
         data: {
           caseCount: newCaseCount,
           weight: newWeight,
+          // Dara kalktıysa iz kolonları da temizlenir — dolu bırakmak "bu satıra
+          // dara uygulandı" demek olurdu ve döküm brütü net sanardı.
+          grossWeight: dara.tare > 0 ? dara.gross : null,
+          tareKg: dara.tare > 0 ? dara.tare : null,
           weak: newWeak,
           disposableCase: newDisposable,
           bQuality: newBQuality,
@@ -322,6 +347,12 @@ export async function createManualDepoEntry(req, res, next) {
       }
     }
 
+    // Kasa darası — saha akışıyla AYNI kural (utils/tare.js). Ofis girişi de
+    // fiziksel bir tartıma dayanıyor; burada düşülmezse aynı mal hangi ekrandan
+    // girildiğine göre farklı kiloyla kaydedilirdi.
+    const dara = applyTare({ unit: product.unit, caseCount: c, disposableCase, weight: w })
+    if (dara.error) return res.status(400).json({ error: dara.error })
+
     // Alış fiyatı çözümü — saha akışıyla aynı kural, tek fark: bölge oturumu
     // olmadığı için prim ayrı sorguyla okunuyor.
     //
@@ -352,7 +383,9 @@ export async function createManualDepoEntry(req, res, next) {
           producerId: prid,
           qualityId: qualityId ? Number(qualityId) : null,
           caseCount: c,
-          weight: w,
+          weight: dara.net, // NET — kasa darası düşülmüş (bkz. utils/tare.js)
+          grossWeight: dara.tare > 0 ? dara.gross : null,
+          tareKg: dara.tare > 0 ? dara.tare : null,
           unit: product.unit,
           weak: Boolean(weak),
           disposableCase: Boolean(disposableCase),
@@ -362,7 +395,7 @@ export async function createManualDepoEntry(req, res, next) {
           createdBy: req.user?.name || req.user?.username || 'Admin',
           purchasePricePerKg: purchase.pricePerKg,
           purchasePriceSource: purchase.source,
-          purchaseQty: w,
+          purchaseQty: dara.net, // NET: üreticiye malın kilosu ödenir, kasanın değil
           purchaseCases: c,
         },
         include: { product: true, quality: true, producer: true, market: true },
@@ -371,7 +404,8 @@ export async function createManualDepoEntry(req, res, next) {
       // Saha akışıyla aynı kurallar: fiyat yoksa borç yok (0 değil), üretici
       // yoksa borç yok. Gerekçeler createEntryBatch'te yazılı.
       if (prid && purchase.pricePerKg != null) {
-        const amount = round2(purchase.pricePerKg * w)
+        // NET üzerinden — kasa ağırlığına para ödenmez (bkz. utils/tare.js)
+        const amount = round2(purchase.pricePerKg * dara.net)
         if (amount > 0) {
           await tx.ledgerEntry.create({
             data: {
@@ -488,6 +522,11 @@ export async function createEntryBatch(req, res, next) {
     if (!product) return res.status(404).json({ error: 'Ürün bulunamadı' })
     const countable = isCountable(product.unit)
 
+    // Satır → dara sonucu. Doğrulama turunda hesaplanıp create turunda
+    // kullanılıyor: iki kez hesaplamak, birinin koşulu değişince sessizce
+    // ayrışan iki rakam demek olurdu.
+    const daraSonuclari = new Map()
+
     for (const e of entries) {
       if (countable) {
         // Miktar weight kolonunda ve tam sayı olmalı — ondalık gelirse FIFO
@@ -510,6 +549,23 @@ export async function createEntryBatch(req, res, next) {
       if (!e.marketId) {
         return res.status(400).json({ error: 'Her satır için pazar seçilmeli' })
       }
+
+      // ——— KASA DARASI ———
+      // Siyah kasa işareti SATIR BAZINDA gelebiliyor (parti geneli yalnız
+      // varsayılan), bu yüzden dara satır satır çözülüyor — aşağıdaki create
+      // bloğu da aynı resolved değeri kullanmalı, yoksa ekranda düşülen dara
+      // ile kayda yazılan ayrışır. Tek karar noktası: utils/tare.js
+      const satirDisposable = typeof e.disposableCase === 'boolean'
+        ? e.disposableCase
+        : Boolean(disposableCase)
+      const dara = applyTare({
+        unit: product.unit,
+        caseCount: e.caseCount == null || e.caseCount === '' ? 0 : Number(e.caseCount),
+        disposableCase: satirDisposable,
+        weight: Number(e.weight),
+      })
+      if (dara.error) return res.status(400).json({ error: dara.error })
+      daraSonuclari.set(e, dara)
     }
 
     const createdBy = req.user?.name || req.user?.username || 'Sistem'
@@ -573,7 +629,14 @@ export async function createEntryBatch(req, res, next) {
             producerId: producerId ? Number(producerId) : null,
             qualityId: qualityId ? Number(qualityId) : null,
             caseCount: e.caseCount == null || e.caseCount === '' ? 0 : Number(e.caseCount),
-            weight: Number(e.weight),
+            // NET kilo — kasa darası düşülmüş. Doğrulama turunda çözüldü,
+            // burada yeniden hesaplanmıyor (bkz. daraSonuclari).
+            weight: daraSonuclari.get(e).net,
+            // Brüt ve dara İZ olarak duruyor: dökümde "100 kg brüt − 10 kasa ×
+            // 2 = 80 kg net" gösterilebilsin, operatör kendi yazdığı rakamı
+            // kayıtta bulabilsin. Dara uygulanmayan satırda ikisi de null.
+            grossWeight: daraSonuclari.get(e).tare > 0 ? daraSonuclari.get(e).gross : null,
+            tareKg: daraSonuclari.get(e).tare > 0 ? daraSonuclari.get(e).tare : null,
             unit: product.unit,
             weak: Boolean(weak),
             // Siyah kasa ve B kalite SATIR BAZINDA gelebilir (2026-08-18): aynı
@@ -593,7 +656,8 @@ export async function createEntryBatch(req, res, next) {
             purchasePriceSource: purchase.source,
             // Mal kabul anındaki miktar. weight sonradan depo transferinde
             // yeniden tartılıp DEĞİŞEBİLİYOR — borç oradan türetilemez.
-            purchaseQty: Number(e.weight),
+            // NET yazılır: üreticiye malın kilosu ödenir, kasanın değil.
+            purchaseQty: daraSonuclari.get(e).net,
             // Aynı gerekçenin kasa ekseni: caseCount kısmî transferde parçadan
             // düşülüyor, depo geçmişi "kaç kasa girdi"yi buradan okuyor.
             purchaseCases: e.caseCount == null || e.caseCount === '' ? 0 : Number(e.caseCount),
@@ -617,7 +681,9 @@ export async function createEntryBatch(req, res, next) {
         // ÜRETİCİ YOKSA BORÇ YAZILMAZ: kime borçlu olduğumuz belli değil.
         // Üretici sonradan atanınca borç doğar (PATCH /admin/entries/:id/producer).
         if (producerId && purchase.pricePerKg != null) {
-          const amount = round2(purchase.pricePerKg * Number(e.weight))
+          // NET üzerinden — Entry.weight ile aynı rakam. e.weight BRÜT'tür
+          // ve buraya yazılırsa üreticiye kasa ağırlığı kadar fazla ödenir.
+          const amount = round2(purchase.pricePerKg * daraSonuclari.get(e).net)
           if (amount > 0) {
             await tx.ledgerEntry.create({
               data: {

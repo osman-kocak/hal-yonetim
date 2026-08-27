@@ -226,7 +226,26 @@ model Entry {
   quality             Quality?             @relation(fields: [qualityId], references: [id], onDelete: Restrict)
   qualityId           Int?
   caseCount           Int // Fiziksel kasa adedi — birimden bağımsız, her üründe sayılır
-  weight              Float // Miktar ekseni: CASE kilo · BUNCH bağ · PIECE adet
+  // Miktar ekseni: CASE kilo · BUNCH bağ · PIECE adet.
+  //
+  // KİLODA BU NET'TİR — kasa darası düşülmüş hali (2026-08-27). Fiyat, üretici
+  // borcu, bayi faturası, fiş, stok ve raporların TAMAMI bu kolonu okuyor;
+  // net'i buraya yazmak hepsini tek hamlede doğru kılıyor. Brütü saklayıp her
+  // hesapta ayrı ayrı düşmek seçilmedi: bir çağrı yeri unutulsa fatura sessizce
+  // yanlış tutardan kesilirdi. Hesap tek yerde: utils/tare.js → applyTare()
+  weight              Float
+  // Dara düşülmeden ÖNCEKİ tartım — operatörün ekrana yazdığı rakam.
+  // NULL = bu satıra dara uygulanmadı (dara özelliğinden önceki kayıtlar, siyah
+  // kasa, bağ/adet ürünler, transfer/bölme ile doğan parçalar). Böyle satırlarda
+  // weight zaten brüt = net'tir; null'ı 0 ile karıştırmamak için nullable.
+  //
+  // purchaseQty gibi TARTIM ANININ snapshot'ı: kayıt sonradan bölünüp weight
+  // düşse de bu rakam değişmez, "girişte 100 kg brüt tartıldı" bilgisini taşır.
+  grossWeight         Float?
+  // Düşülen toplam dara (kasa adedi × utils/tare.js → TARE_PER_CASE_KG).
+  // SNAPSHOT: dara oranı sonradan değişse de bu satırın hesabı sabit kalır —
+  // purchasePricePerKg ile aynı gerekçe.
+  tareKg              Float?
   // Kayıt anındaki ürün birimi SNAPSHOT'ı. Ürünün birimi sonradan değişse de
   // geçmiş irsaliye/rapor anlamını korur — aynı gerekçe ExitItem.pricePerKg için
   // de yazılı. Snapshot olmadan bir Entry satırı tek başına okunamaz.
@@ -532,7 +551,9 @@ model ReturnRecord {
   productId      Int
   qualityId      Int?
   caseCount      Int // Fiziksel kasa adedi — birimden bağımsız
-  weight         Float // CASE: kilo · BUNCH: bağ · PIECE: adet
+  // CASE: kilo · BUNCH: bağ · PIECE: adet. Kiloda NET (kasa darası düşülmüş) —
+  // amount da bundan hesaplanır. Brüt/dara izi bağlı Entry'de durur.
+  weight         Float
   pricePerKg     Float // Birimin fiyatı: ₺/kg · ₺/bağ · ₺/adet
   amount         Float
   unit           ProductUnit   @default(CASE)

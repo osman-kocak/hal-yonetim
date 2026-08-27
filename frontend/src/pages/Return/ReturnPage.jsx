@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { MarketAutocomplete } from '@/components/ui/Input'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { formatDate, formatQty, isCountable, priceLabel, qtyLabel, unitLabel } from '@/utils/formatters'
+import { previewTare } from '@/utils/tare'
 import { LogOut, ArrowLeft, RotateCcw, RefreshCw, X, AlertTriangle } from 'lucide-react'
 
 const DESTINATIONS = [
@@ -521,6 +522,13 @@ function ReturnSlotCard({
 
   const girilen = Number(slot.weight) || 0
   const birim = unitLabel(unit)
+  // Kasa darası — mal kabulle aynı kural (utils/tare.js). Girilen kilo brüt.
+  const dara = previewTare({
+    unit,
+    caseCount: slot.caseCount,
+    disposableCase: slot.disposableCase,
+    weight: slot.weight,
+  })
   // Uyarı üç durumda: ürün hiç gönderilmemiş / kalandan fazla iade / kalan sıfır
   const hicYok = slot.productId && balance && !sent
   const fazla = sent && girilen > 0 && girilen > sent.netQty
@@ -614,6 +622,15 @@ function ReturnSlotCard({
             placeholder="0"
             className="w-full px-3 py-2.5 rounded-xl border border-border bg-white text-base tabular-nums focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          {/* İade de tartılıyor: girilen kilo BRÜT, bayinin borcundan düşülen
+              tutar NET üzerinden hesaplanır (bkz. utils/tare.js). */}
+          {dara.uygulandi && (
+            dara.gecersiz
+              ? <p className="text-[11px] font-semibold text-error">{dara.tare} kg dara, girilenden fazla</p>
+              : <p className="text-[11px] text-text-secondary tabular-nums">
+                  −{dara.tare} kg dara → <strong className="text-primary">{dara.net} kg net</strong>
+                </p>
+          )}
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-xs font-medium text-text-secondary">{priceLabel(unit)}</label>

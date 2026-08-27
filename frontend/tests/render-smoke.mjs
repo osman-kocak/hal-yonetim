@@ -193,6 +193,46 @@ console.log('\n── İrsaliye fişi (indirim) ──')
      'indirimsiz kalemde tek rakam (sahte indirim basılmıyor)')
 }
 
+// ——— Kasa darası: frontend ↔ backend KİLİT ADIMLI mı? ———
+//
+// Ekrandaki önizleme ile kayda yazılan net AYNI olmalı. İki dosya ayrı ayrı
+// duruyor (biri tarayıcıda, biri sunucuda) ve ayrışırlarsa operatör bir rakam
+// görüp kayda başkası yazılır — bunu ancak böyle bir karşılaştırma yakalar.
+console.log('\n── Kasa darası (frontend ↔ backend) ──')
+{
+  const be = await import('../../backend/src/utils/tare.js')
+  const fe = await load('/src/utils/tare.js')
+
+  ok(be.TARE_PER_CASE_KG === fe.TARE_PER_CASE_KG,
+     `kasa başına dara aynı (${be.TARE_PER_CASE_KG} kg)`)
+
+  const durumlar = [
+    { unit: 'CASE', caseCount: 10, disposableCase: false, weight: 100 },
+    { unit: 'CASE', caseCount: 10, disposableCase: true, weight: 100 },
+    { unit: 'CASE', caseCount: 0, disposableCase: false, weight: 100 },
+    { unit: 'CASE', caseCount: 10, disposableCase: false, weight: 229.98 },
+    { unit: 'CASE', caseCount: 1, disposableCase: false, weight: 2.5 },
+    { unit: 'BUNCH', caseCount: 5, disposableCase: false, weight: 30 },
+    { unit: 'PIECE', caseCount: 5, disposableCase: false, weight: 8 },
+  ]
+  let ayrisan = null
+  for (const d of durumlar) {
+    const b = be.applyTare(d)
+    const f = fe.previewTare(d)
+    // Geçersiz durumda backend hata döner, frontend gecersiz işaretler —
+    // ikisi de "bu kayıt olmaz" demeli.
+    if (b.tare !== f.tare || b.net !== f.net || Boolean(b.error) !== f.gecersiz) {
+      ayrisan = `${JSON.stringify(d)} → be ${JSON.stringify(b)} / fe ${JSON.stringify(f)}`
+      break
+    }
+  }
+  ok(!ayrisan, 'dara hesabı iki tarafta aynı sonucu veriyor', ayrisan ?? '')
+
+  const gecersiz = { unit: 'CASE', caseCount: 10, disposableCase: false, weight: 15 }
+  ok(Boolean(be.applyTare(gecersiz).error) && fe.previewTare(gecersiz).gecersiz,
+     'dara brütü aşınca ikisi de reddediyor')
+}
+
 await vite.close()
 console.log(`\n═══ ${pass} geçti, ${fail} başarısız ═══`)
 process.exit(fail ? 1 : 0)

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { isCountable, qtyLabel, unitLabel } from '@/utils/formatters'
+import { TARE_PER_CASE_KG, previewTare } from '@/utils/tare'
 import { ArrowLeft, AlertTriangle, Package, Layers } from 'lucide-react'
 
 const BATCH = 3
@@ -75,6 +76,36 @@ function clearDraft() {
 // ondalık kabul etmez. KASA ÜÇ BİRİMDE DE SORULUR (2026-08-13): bağ malı da geri
 // dönen kasayla geliyor. Fark yalnızca zorunlulukta — bağ/adette kasasız
 // (çuval, poşet) giriş mümkün olduğu için opsiyonel.
+// Kasa darası önizlemesi — operatör kaydetmeden ÖNCE net kiloyu görsün.
+//
+// Yazılan kilo BRÜT (mal kasasıyla tartılıyor); kayda net yazılır. Bu satır
+// olmadan operatör 80 yazdığını sanıp 100 yazar ve fark hem üretici borcuna hem
+// bayi faturasına işler. Hesabın kendisi sunucuda: bkz. utils/tare.js
+function TarePreview({ slot, unit }) {
+  const t = previewTare({
+    unit,
+    caseCount: slot.caseCount,
+    disposableCase: slot.disposableCase,
+    weight: slot.weight,
+  })
+  if (!t.uygulandi) return null
+
+  if (t.gecersiz) {
+    return (
+      <p className="text-xs font-semibold text-error flex items-center gap-1.5">
+        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+        {t.tare} kg dara, girilen {t.gross} kg'a eşit veya fazla — kasa adedini ya da kiloyu kontrol et
+      </p>
+    )
+  }
+  return (
+    <p className="text-xs text-text-secondary tabular-nums">
+      {t.gross} − ({Number(slot.caseCount)} × {TARE_PER_CASE_KG} kg dara) ={' '}
+      <strong className="text-primary">{t.net} kg net</strong>
+    </p>
+  )
+}
+
 function SlotCard({ slot, idx, markets, onChange, errors, countable, unit }) {
   return (
     <div className="bg-white border border-border rounded-2xl p-4 flex flex-col gap-3 shadow-card">
@@ -130,6 +161,7 @@ function SlotCard({ slot, idx, markets, onChange, errors, countable, unit }) {
           error={errors?.weight}
         />
       </div>
+      <TarePreview slot={slot} unit={unit} />
       {slot.marketId && !errors?.market && (
         <p className="text-xs text-primary font-medium truncate">
           {markets.find((m) => m.id === slot.marketId)?.name}
@@ -308,6 +340,18 @@ export function EntryForm() {
         errs[i].weight = countable ? `Geçerli ${unitLabel(unit)} gir` : 'Geçerli kilo gir'; hasErr = true
       }
       if (!s.marketId) { errs[i].market = 'Pazar seçilmeli'; hasErr = true }
+      // Dara brütü aşan satır BURADA durdurulmalı: offline'da parti kuyruğa
+      // giriyor ve sunucu onu saatler sonra 400'le reddediyor — operatör o
+      // sırada halden çıkmış oluyor ve mal kayıtsız kalıyor.
+      const t = previewTare({
+        unit,
+        caseCount: s.caseCount,
+        disposableCase: s.disposableCase,
+        weight: s.weight,
+      })
+      if (t.gecersiz) {
+        errs[i].weight = `${t.tare} kg dara, girilen kilodan fazla`; hasErr = true
+      }
     })
     if (hasErr) { setSlotErrors(errs); return false }
     return true
