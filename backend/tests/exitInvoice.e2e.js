@@ -11,7 +11,7 @@
 import { prisma } from '../src/utils/prismaClient.js'
 import { createExit } from '../src/controllers/exitController.js'
 import {
-  invoiceQueue, setInvoiceNo, clearInvoiceNo, markPrinted,
+  invoiceQueue, setInvoiceNo, clearInvoiceNo, markPrinted, setExitPrices,
 } from '../src/controllers/exitInvoiceController.js'
 
 let pass = 0, fail = 0
@@ -228,7 +228,140 @@ console.log('\n── Arama ──')
   ok(gecersiz.status === 400, `geçersiz sekme 400 (${gecersiz.status})`)
 }
 
-// ── 9. Sayfalama ──
+// ── 9. ESKİ FİŞ: snapshot yok ama fiyat tablosunda var ──
+//
+// GERÇEK HATA (2026-08-27, canlıda #1 nolu fiş): ExitItem.pricePerKg alanı
+// sonradan eklendi, öncesindeki irsaliyelerin kalemlerinde NULL duruyor. Onay
+// ekranı yalnız snapshot'a bakınca "fiyat yok · 0,00 TL" diyordu; AYNI fiş
+// yazdırıldığında ise fiyatlı basılıyordu (historyController fiyat tablosuna
+// geri düşüyor). Muhasebeci iki ekranda iki farklı gerçek görüyordu.
+console.log('\n── Eski fiş · fiyat snapshot"u yok ──')
+{
+  const d = await kur()
+  // Snapshot'ları sil → dara/indirim öncesi eski kayıtları taklit et
+  await prisma.exitItem.updateMany({ data: { pricePerKg: null, listPricePerKg: null } })
+
+  const r = await kuyruk({ status: 'pending' })
+  const satir = r.body.data.find((e) => e.id === d.fisler[0])
+  ok(satir.missingPrices === 0, `"fiyat yok" DEMİYOR: missingPrices = ${satir.missingPrices}`)
+  ok(satir.amount === 1200, `tutar fiyat tablosundan hesaplandı: ${satir.amount} TL (0 değil)`)
+
+  // Fiyat tablosunda da yoksa GERÇEKTEN fiyat yok demeli — geri düşüş
+  // uyarıyı tamamen susturmamalı.
+  await prisma.price.deleteMany()
+  const r2 = await kuyruk({ status: 'pending' })
+  const satir2 = r2.body.data.find((e) => e.id === d.fisler[0])
+  ok(satir2.missingPrices === 1, `fiyat gerçekten yoksa uyarı duruyor: ${satir2.missingPrices}`)
+  ok(satir2.amount === 0, `tutar 0: ${satir2.amount}`)
+}
+
+// ── 10. Fiyatsız kalemler onay ekranında SORULABİLİR olmalı ──
+console.log('\n── Fiyatsız ürünler onay ekranına taşınıyor ──')
+{
+  const d = await kur()
+  await prisma.exitItem.updateMany({ data: { pricePerKg: null, listPricePerKg: null } })
+  await prisma.price.deleteMany()
+
+  const r = await kuyruk({ status: 'pending' })
+  const satir = r.body.data.find((e) => e.id === d.fisler[0])
+  ok(satir.missingPrices === 1, `fiyatsız kalem sayısı: ${satir.missingPrices}`)
+  ok(Array.isArray(satir.products), 'ürün listesi dönüyor')
+  ok(satir.products.length === 1, `1 ürün: ${satir.products.length}`)
+  ok(satir.products[0].name === 'Domates', `ürün ADIYLA geliyor: ${satir.products[0].name}`)
+  ok(satir.products[0].unit === 'CASE', `birim geliyor: ${satir.products[0].unit}`)
+  ok(typeof satir.products[0].productId === 'number', 'productId geliyor')
+  ok(satir.products[0].pricePerKg === null, 'fiyatsızda pricePerKg null')
+
+  // Fiyatı olan fişte liste BOŞ olmalı — ekran gereksiz alan açmasın
+  await prisma.price.create({ data: { productId: d.urun.id, pricePerKg: 15, date: bugun } })
+  const r2 = await kuyruk({ status: 'pending' })
+  const satir2 = r2.body.data.find((e) => e.id === d.fisler[0])
+  // Liste BOŞALMAZ — artık tüm ürünler dönüyor ki onaylanmış fişin fiyatı da
+  // düzeltilebilsin. Değişen tek şey: pricePerKg artık dolu, uyarı düştü.
+  ok(satir2.products.length === 1, 'ürün listesi duruyor (fiyat düzeltilebilsin)')
+  ok(satir2.products[0].pricePerKg === 15, `geçerli fiyat dönüyor: ${satir2.products[0].pricePerKg}`)
+  ok(satir2.missingPrices === 0, 'fiyat uyarısı düştü')
+  ok(satir2.amount === 1200, `tutar hesaplandı: ${satir2.amount} TL`)
+}
+
+// ── 11. Aynı ürünün birden fazla kalemi TEK KEZ sorulmalı ──
+console.log('\n── Aynı ürün tekilleştirme ──')
+{
+  await temizle()
+  const urun = await prisma.product.create({ data: { name: 'Biber', unit: 'CASE' } })
+  const bayi = await prisma.market.create({ data: { no: 9, name: 'Bayi 9' } })
+  const ids = []
+  for (let i = 0; i < 3; i++) {
+    const e = await prisma.entry.create({
+      data: { productId: urun.id, caseCount: 1, weight: 10, unit: 'CASE', marketId: bayi.id },
+    })
+    ids.push(e.id)
+  }
+  const r = await call(createExit, { body: { marketId: bayi.id, entryIds: ids } })
+  await prisma.exitItem.updateMany({ data: { pricePerKg: null } })
+  const kuy = await kuyruk({ status: 'pending' })
+  const satir = kuy.body.data.find((e) => e.id === r.body.id)
+  ok(satir.missingPrices === 3, `3 kalem fiyatsız: ${satir.missingPrices}`)
+  ok(satir.products.length === 1, `ama TEK ürün soruluyor: ${satir.products.length}`)
+}
+
+// ── 11b. ONAYLANMIŞ fişin fiyatı da düzeltilebilmeli ──
+console.log('\n── Onaylı fişte fiyat düzeltme ──')
+{
+  const d = await kur()
+  const id = d.fisler[0]
+  await call(setInvoiceNo, { params: { id: String(id) }, body: { invoiceNo: 'DZL-1' } })
+
+  const onayli = await kuyruk({ status: 'approved' })
+  const satir = onayli.body.data.find((e) => e.id === id)
+  ok(satir.products.length === 1, 'onaylı satırda da ürün listesi var')
+  ok(satir.products[0].pricePerKg === 15, `mevcut fiyat kutuya dolacak: ${satir.products[0].pricePerKg}`)
+  ok(satir.amount === 1200, `onay anındaki tutar: ${satir.amount} TL`)
+
+  const borcOnce = await prisma.ledgerEntry.findUnique({ where: { exitId: id } })
+  ok(borcOnce?.amount === 1200, `bayi borcu önce: ${borcOnce?.amount} TL`)
+
+  // Fiyat 15 → 20 (ekranın çağırdığı ucun aynısı)
+  const dz = await call(setExitPrices, {
+    params: { id: String(id) },
+    body: { prices: [{ productId: d.urun.id, pricePerKg: 20 }] },
+  })
+  ok(dz.status === 200, `düzeltme 200 (${dz.status})`, JSON.stringify(dz.body).slice(0, 120))
+  ok(dz.body.products[0].pricePerKg === 20, `yanıtta yeni fiyat: ${dz.body.products[0].pricePerKg}`)
+  ok(dz.body.amount === 1600, `yanıtta yeni tutar: ${dz.body.amount} TL`)
+
+  // (1) Kalem SNAPSHOT'ı gerçekten değişti mi — asıl tuzak buydu: yalnız Price
+  // yazılsaydı ekran "kaydedildi" der, fişin tutarı hiç değişmezdi.
+  const kalem = await prisma.exitItem.findFirst({ where: { exitId: id } })
+  ok(kalem.pricePerKg === 20, `kalem snapshot'ı güncellendi: ${kalem.pricePerKg}`)
+  // (2) Günün fiyat tablosu.
+  // findFirst DEĞİL, EN GÜNCEL TARİHLİ satır: fiyat carry-forward'lı (bkz.
+  // priceController.effectivePriceRows) ve fişin gününe satır yoksa yenisi
+  // AÇILIYOR, eskisi ezilmiyor. İlk satıra bakmak eski rakamı görür.
+  const gunFiyat = await prisma.price.findFirst({
+    where: { productId: d.urun.id }, orderBy: { date: 'desc' },
+  })
+  ok(gunFiyat.pricePerKg === 20, `fişin gününe geçerli fiyat yazıldı: ${gunFiyat.pricePerKg}`)
+  // (3) Bayi borcu — fiş ile cari ayrışmamalı
+  const borcSonra = await prisma.ledgerEntry.findUnique({ where: { exitId: id } })
+  ok(borcSonra?.amount === 1600, `bayi borcu senkronlandı: ${borcSonra?.amount} TL`)
+
+  const sonra = await kuyruk({ status: 'approved' })
+  const satir2 = sonra.body.data.find((e) => e.id === id)
+  ok(satir2.amount === 1600, `listede yeni tutar: ${satir2.amount} TL`)
+  ok(satir2.invoiceNo === 'DZL-1', 'fatura no bozulmadı')
+
+  const bosluk = await call(setExitPrices, { params: { id: String(id) }, body: { prices: [] } })
+  ok(bosluk.status === 400, `boş fiyat listesi 400 (${bosluk.status})`)
+  const sifir = await call(setExitPrices, {
+    params: { id: String(id) }, body: { prices: [{ productId: d.urun.id, pricePerKg: 0 }] },
+  })
+  ok(sifir.status === 400, `sıfır fiyat reddedildi (${sifir.status})`)
+  const hala = await prisma.exitItem.findFirst({ where: { exitId: id } })
+  ok(hala.pricePerKg === 20, 'geçersiz denemeler fiyatı bozmadı')
+}
+
+// ── 12. Sayfalama ──
 console.log('\n── Sayfalama ──')
 {
   await temizle()

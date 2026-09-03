@@ -1,6 +1,8 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { hasAnyRole } from '@/utils/roles'
+import { useInvoiceStore, badgeText } from '@/store/invoiceStore'
 import { cn } from '@/utils/cn'
 import {
   LayoutDashboard, MapPin, Package, Store, BarChart2, LogOut, DollarSign, History, UserCog, User, Boxes, ArrowLeftRight, Wallet, RotateCcw, Home, Trash, ShieldAlert, ArrowLeft, Warehouse, WifiOff, HandCoins, FileCheck } from 'lucide-react'
@@ -15,7 +17,7 @@ const nav = [
   { to: '/admin/uretici-odeme', label: 'Üretici Ödeme', icon: HandCoins },
   // ROL: ADMIN + ACCOUNTING (adminOnly YOK) — fatura eşleştirmesi muhasebenin
   // asıl işi. Onayı GERİ ALMA ekran içinde ADMIN'e kısıtlı.
-  { to: '/admin/fatura-onay', label: 'Fatura Onayı', icon: FileCheck },
+  { to: '/admin/fatura-onay', label: 'Fatura Onayı', icon: FileCheck, badge: 'invoicePending' },
   { to: '/admin/takip', label: 'Takip & Geçmiş', icon: History },
   { to: '/admin/depo', label: 'Depo', icon: Warehouse },
   { to: '/admin/kasalar', label: 'Kasa Takip', icon: Boxes },
@@ -43,6 +45,17 @@ export function AdminLayout() {
   // Auth + role kontrolü ProtectedRoute tarafından yapılır.
   // ADMIN-only menüler (kullanıcılar, erişim kayıtları) ACCOUNTING'e gizlenir.
   const isAdmin = hasAnyRole(user, 'ADMIN')
+
+  // Onay bekleyen irsaliye sayısı — sol menüdeki rozet.
+  // Admin paneli açıldığında bir kez çekilir; sonrasında onay ekranı kendi
+  // yanıtındaki sayıyı store'a yazdığı için tazelenir (polling yok).
+  const bekleyen = useInvoiceStore((st) => st.pendingCount)
+  const yenile = useInvoiceStore((st) => st.refresh)
+  const bekleyenRozet = badgeText(bekleyen)
+
+  // setState effect GÖVDESİNDE çağrılmıyor: refresh yalnız yanıt gelince
+  // yazıyor (react-hooks/set-state-in-effect).
+  useEffect(() => { yenile() }, [yenile])
 
   return (
     <div className="min-h-screen bg-bg flex">
@@ -72,7 +85,7 @@ export function AdminLayout() {
         </div>
         {/* min-h-0: flex çocuğu varsayılan olarak küçülmez, overflow tetiklenmez */}
         <nav className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-1">
-          {nav.filter((item) => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, end }) => (
+          {nav.filter((item) => !item.adminOnly || isAdmin).map(({ to, label, icon: Icon, end, badge }) => (
             <NavLink
               key={to}
               to={to}
@@ -87,7 +100,15 @@ export function AdminLayout() {
               }
             >
               <Icon className="w-4 h-4" />
-              {label}
+              <span className="flex-1">{label}</span>
+              {/* Onay bekleyen sayısı. 9'dan fazlaysa "9+": iki haneli sayı
+                  menü satırını bozuyor ve rozette "152 mi 15 mi" ayrımı zaten
+                  okunmuyor — verilen bilgi "çok var". */}
+              {badge === 'invoicePending' && bekleyenRozet && (
+                <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold flex items-center justify-center tabular-nums">
+                  {bekleyenRozet}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

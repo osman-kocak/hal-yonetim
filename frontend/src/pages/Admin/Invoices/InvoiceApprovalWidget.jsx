@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, errorMessage } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
+import { priceLabel } from '@/utils/formatters'
 import { useToastStore } from '@/store/toastStore'
+import { useInvoiceStore } from '@/store/invoiceStore'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Segmented } from '@/components/ui/Segmented'
@@ -37,6 +39,10 @@ const TABS = [
 export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className = 'mb-8' }) {
   const user = useAuthStore((s) => s.user)
   const addToast = useToastStore((s) => s.addToast)
+  // Sol menüdeki rozetle AYNI sayıyı paylaşıyoruz: kuyruk yanıtı zaten
+  // pendingCount taşıyor, ikinci bir istek atmak yerine store'a yazılıyor.
+  // Onay/geri alma sonrası menü kendiliğinden güncelleniyor.
+  const setPendingCount = useInvoiceStore((s) => s.setPendingCount)
 
   const [tab, setTab] = useState('pending')
   const [page, setPage] = useState(1)
@@ -46,6 +52,10 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
   // Hangi satırın onay alanı açık — aynı anda tek satır.
   const [acikId, setAcikId] = useState(null)
   const [faturaNo, setFaturaNo] = useState('')
+  // Fişteki ürünlerin fiyat kutuları: { [productId]: '12.5' }.
+  // Alan açılırken MEVCUT fiyatlarla dolduruluyor — muhasebeci hem görsün hem
+  // üzerine yazabilsin.
+  const [fiyatlar, setFiyatlar] = useState({})
   const [kaydediliyor, setKaydediliyor] = useState(false)
   const [hata, setHata] = useState('')
   const [geriAlinacak, setGeriAlinacak] = useState(null)
@@ -57,10 +67,10 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
     setLoading(true)
     const arama = aramaMetni.trim()
     api.getInvoiceQueue({ status: tab, page, limit: pageSize, q: arama || undefined })
-      .then(setData)
+      .then((r) => { setData(r); setPendingCount(r?.pendingCount) })
       .catch((err) => addToast(errorMessage(err, 'Fatura kuyruğu yüklenemedi'), 'error'))
       .finally(() => setLoading(false))
-  }, [tab, page, aramaMetni, pageSize, addToast])
+  }, [tab, page, aramaMetni, pageSize, addToast, setPendingCount])
 
   useEffect(() => {
     const t = setTimeout(yukle, aramaMetni ? 300 : 0)
@@ -71,12 +81,18 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
     setAcikId(exit.id)
     // Düzeltmede mevcut numara alana gelir — muhasebeci sıfırdan yazmasın.
     setFaturaNo(exit.invoiceNo ?? '')
+    // Mevcut fiyatlar kutulara yazılıyor: boş kutu "fiyat yok" demek olurdu ve
+    // kullanıcı her düzeltmede rakamı yeniden bulmak zorunda kalırdı.
+    setFiyatlar(Object.fromEntries(
+      (exit.products ?? []).map((p) => [p.productId, p.pricePerKg == null ? '' : String(p.pricePerKg)]),
+    ))
     setHata('')
   }
 
   function kapat() {
     setAcikId(null)
     setFaturaNo('')
+    setFiyatlar({})
     setHata('')
   }
 
@@ -86,6 +102,30 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
     setKaydediliyor(true)
     setHata('')
     try {
+      // ÖNCE FİYATLAR, sonra fatura no.
+      //
+      // Sıra önemli: fiyat yazımı patlarsa irsaliye onaylanmamış kalır ve
+      // muhasebeci tekrar dener. Tersi olsaydı "onaylandı ama tutarı hâlâ 0"
+      // gibi yarım bir durum kalırdı.
+      //
+      // Fiyat ÜRÜN + GÜN bazlı yazılır (Price tablosu böyle): girilen rakam o
+      // günün genel fiyatı olur ve aynı gün aynı üründen kesilmiş DİĞER
+      // irsaliyeleri de fiyatlandırır. Ekranda bu uyarı yazılı.
+      // YALNIZ DEĞİŞENLER yazılıyor. Değişmemiş fiyatı yeniden kaydetmek, o
+      // güne aynı rakamla açık bir Price satırı yazar: fiyat önceki günden
+      // devrediyorsa (carry-forward) devri sessizce dondurur ve her onayda
+      // gereksiz bir denetim kaydı düşer.
+      const girilenler = (exit.products ?? []).filter((p) => {
+        const v = fiyatlar[p.productId]
+        if (!v || !(Number(v) > 0)) return false
+        return Number(v) !== p.pricePerKg
+      })
+      if (girilenler.length) {
+        await api.setExitPrices(exit.id, girilenler.map((p) => ({
+          productId: p.productId,
+          pricePerKg: Number(fiyatlar[p.productId]),
+        })))
+      }
       await api.setExitInvoiceNo(exit.id, no)
       addToast(`#${exit.id} faturalandı: ${no} ✓`)
       kapat()
@@ -157,7 +197,14 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
         <div className="flex flex-col gap-2">
           {data.data.map((ex) => (
             <div key={ex.id} className="border border-border rounded-xl p-3">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
+              {/* SATIRIN TAMAMI tıklanabilir: muhasebeci fatura numarasının
+                  üstüne basıp düzenlemek istiyor, küçük bir butonu nişan
+                  almak zorunda kalmasın. Alan zaten açıksa tıklama yok sayılır,
+                  yoksa yazarken kendi kendini kapatırdı. */}
+              <div
+                className={acikId === ex.id ? 'flex items-start justify-between gap-3 flex-wrap' : 'flex items-start justify-between gap-3 flex-wrap cursor-pointer'}
+                onClick={() => { if (acikId !== ex.id) ac(ex) }}
+                title={acikId === ex.id ? undefined : (ex.invoiceNo ? 'Fatura numarasını düzenle' : 'Fatura numarası gir')}>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-text-primary">
                     #{ex.id} · {ex.market?.no} {ex.market?.name}
@@ -182,13 +229,19 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                {/* Butonlar satır tıklamasını tetiklemesin — "geri al" yanlışlıkla
+                    düzenleme alanını açmasın, onay diyaloğuna gitsin. */}
+                <div className="flex items-center gap-2 flex-wrap shrink-0" onClick={(e) => e.stopPropagation()}>
                   <PrintedBadge exit={ex} />
+                  {/* Fatura numarasının KENDİSİ de bir düğme: kullanıcı önce
+                      oraya basıyor. */}
                   {tab === 'approved' && (
-                    <Badge variant="success">
-                      <FileCheck className="w-3 h-3 mr-1" />
-                      {ex.invoiceNo}
-                    </Badge>
+                    <button type="button" onClick={() => ac(ex)} title="Fatura numarasını düzenle">
+                      <Badge variant="success" className="cursor-pointer hover:brightness-95">
+                        <FileCheck className="w-3 h-3 mr-1" />
+                        {ex.invoiceNo}
+                      </Badge>
+                    </button>
                   )}
                   {acikId !== ex.id && (
                     <>
@@ -240,6 +293,40 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
                       <X className="w-4 h-4" /> Vazgeç
                     </Button>
                   </div>
+                  {/* FİYATLAR — onaylarken de, onaylanmışı düzeltirken de burada.
+                      Muhasebeci fiyat için Fiyatlar ekranına gidip fişin gününü
+                      aramak zorunda kalmasın; iş zaten bu fişe bakarken yapılıyor.
+                      Boş bırakılabilir: fatura numarası fiyattan bağımsız. */}
+                  {(ex.products?.length ?? 0) > 0 && (
+                    <div className="flex flex-col gap-2 pt-1">
+                      <p className="text-xs font-semibold text-text-secondary flex items-center gap-1">
+                        {ex.missingPrices > 0 && <AlertTriangle className="w-3.5 h-3.5 text-error" />}
+                        {ex.missingPrices > 0 ? 'Fiyatlar — eksik olanlar boş' : 'Fiyatlar'}
+                      </p>
+                      {ex.products.map((p) => (
+                        <div key={p.productId} className="flex items-center gap-2">
+                          <span className={p.pricePerKg == null
+                            ? 'text-sm text-error font-medium flex-1 min-w-0 truncate'
+                            : 'text-sm text-text-secondary flex-1 min-w-0 truncate'}>{p.name}</span>
+                          <input
+                            inputMode="decimal"
+                            value={fiyatlar[p.productId] ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/,/g, '.').replace(/[^0-9.]/g, '')
+                              setFiyatlar((f) => ({ ...f, [p.productId]: v }))
+                            }}
+                            placeholder="0,00"
+                            className="w-28 px-3 py-1.5 rounded-xl border border-border text-sm tabular-nums text-right focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                          <span className="text-xs text-text-muted w-16">{priceLabel(p.unit)}</span>
+                        </div>
+                      ))}
+                      <p className="text-[11px] text-text-muted">
+                        Fiyat bu fişin kalemlerine ve <strong>{String(ex.createdAt).split('T')[0]}</strong> gününün genel
+                        fiyatına yazılır; bayinin bu irsaliyeden doğan borcu da aynı anda güncellenir.
+                      </p>
+                    </div>
+                  )}
                   {hata && <p className="text-xs font-semibold text-error">{hata}</p>}
                 </div>
               )}

@@ -37,7 +37,7 @@ import { listOutages } from '../controllers/outageController.js'
 import { getExitHistory, getEntryHistory, getDepoHistory } from '../controllers/historyController.js'
 import { updateExit, deleteExit } from '../controllers/exitController.js'
 import {
-  invoiceQueue, setInvoiceNo, clearInvoiceNo, markPrinted,
+  invoiceQueue, setInvoiceNo, clearInvoiceNo, markPrinted, setExitPrices,
 } from '../controllers/exitInvoiceController.js'
 import {
   listMovements,
@@ -163,6 +163,9 @@ router.delete('/exits/:id', deleteExit)
 // tamamen koparmak resmi evrakla irsaliye arasındaki bağı siler.
 router.get('/exits/invoice-queue', invoiceQueue)
 router.post('/exits/:id/invoice', setInvoiceNo)
+// Fiyat düzeltmesi onay ekranından: fişin gün fiyatını, kalem snapshot'larını
+// ve bayi borcunu TEK transaction'da günceller (bkz. setExitPrices).
+router.post('/exits/:id/prices', setExitPrices)
 router.delete('/exits/:id/invoice', requireRole('ADMIN'), clearInvoiceNo)
 // Takip ekranından yeniden baskı da rozeti günceller.
 router.post('/exits/:id/printed', markPrinted)

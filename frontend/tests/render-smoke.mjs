@@ -261,12 +261,55 @@ console.log('\n── Fatura onayı ──')
     ok(sayfa.includes('Fatura Onayı'), 'tam sayfa render edildi')
   } catch (e) { ok(false, 'tam sayfa render edildi', String(e.message).slice(0, 200)) }
 
+  // Satırın kendisi tıklanabilir olmalı — kullanıcı fatura numarasının üstüne
+  // basıp düzenlemek istiyor. Statik: tıklama davranışı SSR'da render edilmiyor.
+  const widgetKaynak = await readFile(new URL('../src/pages/Admin/Invoices/InvoiceApprovalWidget.jsx', import.meta.url), 'utf8')
+  ok(/onClick=\{\(\) => \{ if \(acikId !== ex\.id\) ac\(ex\) \}\}/.test(widgetKaynak), 'satıra tıklayınca düzenleme açılıyor')
+  ok(/onClick=\{\(e\) => e\.stopPropagation\(\)\}/.test(widgetKaynak), 'buton grubu satır tıklamasını yutuyor')
+  ok(/<button type="button" onClick=\{\(\) => ac\(ex\)\} title="Fatura numarasını düzenle">/.test(widgetKaynak), 'fatura no rozeti de tıklanabilir')
+
+  // Onaylarken fiyat girişi
+  ok(/ex\.products\?\.length/.test(widgetKaynak), 'fişteki TÜM ürünler için fiyat alanı açılıyor')
+  ok(/api\.setExitPrices\(/.test(widgetKaynak), 'fiyat düzeltmesi tek uçtan gidiyor')
+  ok(widgetKaynak.indexOf('api.setExitPrices(') < widgetKaynak.indexOf('await api.setExitInvoiceNo'),
+     'ÖNCE fiyat, SONRA fatura no yazılıyor')
+  ok(/Number\(v\) !== p\.pricePerKg/.test(widgetKaynak), 'yalnız DEĞİŞEN fiyat kaydediliyor')
+  ok(/p\.pricePerKg == null \? '' : String\(p\.pricePerKg\)/.test(widgetKaynak),
+     'kutular mevcut fiyatla doluyor (düzeltilebilsin)')
+  ok(/bayinin bu irsaliyeden doğan borcu da aynı anda güncellenir/.test(widgetKaynak),
+     'cari etkisi ekranda uyarılıyor')
+
+  // Düzenleme ekranı kullanıcı SORMAMALI — oturumdaki isim yazılıyor.
+  const gecmisKaynak = await readFile(new URL('../src/pages/Admin/HistoryPage.jsx', import.meta.url), 'utf8')
+  ok(!/Düzenleyen kullanıcı seçilmeli/.test(gecmisKaynak), 'düzenlemede kullanıcı seçimi zorunluluğu kalktı')
+  ok(!/>— Kullanıcı seçin —<\/option>[\s\S]{0,400}Düzenleyen/.test(gecmisKaynak), 'düzenleme ekranında kullanıcı kutusu yok')
+  ok(/editedBy gönderilmiyor/.test(gecmisKaynak), 'editedBy istemciden gönderilmiyor')
+
   // Sol menü: fatura onayı ACCOUNTING'e de görünmeli (fatura eşleştirmesi
   // muhasebenin asıl işi). adminOnly eklenirse bu test kırılır.
   const { AdminLayout } = await load('/src/pages/Admin/AdminLayout.jsx')
   const menu = renderToStaticMarkup(wrap(h(AdminLayout)))
   ok(menu.includes('Fatura Onayı'), 'sol menüde görünüyor')
   ok(menu.includes('/admin/fatura-onay'), 'menü doğru adrese gidiyor')
+
+  // Bekleyen sayısı rozeti — "9+" kuralı
+  const { badgeText } = await load('@/store/invoiceStore')
+  ok(badgeText(0) === null, 'sıfırda rozet basılmıyor')
+  ok(badgeText(null) === null, 'sayı bilinmiyorken rozet basılmıyor')
+  ok(badgeText(1) === '1' && badgeText(9) === '9', '1-9 arası sayı olduğu gibi')
+  ok(badgeText(10) === '9+' && badgeText(152) === '9+', "10 ve üstü '9+' gösteriyor")
+
+  // Rozetin MENÜYE BAĞLANDIĞI statik doğrulanıyor, render ile değil: SSR
+  // koşucusunda teste yüklenen store ile bileşenin gördüğü örnek ayrışıyor
+  // (aynı tuzağa RoleSelectPage'de de düşüldü), bu yüzden store'a yazılan sayı
+  // menüye hiç ulaşmıyor ve render testi rozet hakkında bir şey kanıtlamıyor.
+  // "9+" kuralının kendisi yukarıda saf fonksiyonla test edildi; burada
+  // yalnızca kablonun takılı olduğu doğrulanıyor.
+  const layoutKaynak = await readFile(new URL('../src/pages/Admin/AdminLayout.jsx', import.meta.url), 'utf8')
+  ok(/badge: 'invoicePending'/.test(layoutKaynak), 'fatura onayı satırı rozet taşıyor')
+  ok(/badgeText\(bekleyen\)/.test(layoutKaynak), 'rozet metni badgeText ile üretiliyor')
+  ok(/badge === 'invoicePending' && bekleyenRozet/.test(layoutKaynak), 'rozet yalnız o satırda ve sayı varken basılıyor')
+  ok(/useInvoiceStore\(\(st\) => st\.pendingCount\)/.test(layoutKaynak), 'sayı ortak store"dan okunuyor')
 
   // Giriş ekranındaki kutucuk STATİK okunuyor, render ile değil.
   //

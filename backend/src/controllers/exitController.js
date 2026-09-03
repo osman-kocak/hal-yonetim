@@ -206,7 +206,11 @@ export async function updateExit(req, res, next) {
     }
 
     const { price: priceMap, list: listMap } = await getPriceMaps(toPriceDate(existingExit.createdAt))
-    const editedBy = req.body.editedBy ?? 'Admin'
+    // Düzenleyen OTURUMDAN okunuyor, istemciden değil (2026-08-27): ekranda
+    // "kim düzenliyor" diye sormak hem fazladan adım hem de yanlış isim
+    // seçilebilen bir alandı. İstemcinin gönderdiği değer artık yalnızca
+    // oturumda isim yoksa devreye giriyor.
+    const editedBy = req.user?.name || req.user?.username || req.body.editedBy || 'Admin'
 
     // Zaten irsaliyede olan kalemlerin fiyat snapshot'ı KORUNMALI.
     // Eskiden tüm ExitItem'lar silinip hepsi güncel fiyatla yeniden yazılıyordu:

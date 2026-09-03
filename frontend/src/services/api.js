@@ -359,6 +359,10 @@ export const api = {
   getInvoiceQueue: (params) => unwrap(http.get('/admin/exits/invoice-queue', { params })),
   // Hem onay hem düzeltme: ikisi de "bu irsaliyenin fatura numarası şudur".
   setExitInvoiceNo: (id, invoiceNo) => unwrap(http.post(`/admin/exits/${id}/invoice`, { invoiceNo })),
+  // Fişin ürün fiyatlarını düzelt. Günün fiyat tablosunu, kalem snapshot'larını
+  // ve bayi borcunu TEK transaction'da günceller — üçü ayrı ayrı yazılırsa fiş
+  // ile cari hesap ayrışır (bkz. exitInvoiceController.setExitPrices).
+  setExitPrices: (id, prices) => unwrap(http.post(`/admin/exits/${id}/prices`, { prices })),
   // Onayı geri al — YALNIZ ADMIN.
   clearExitInvoiceNo: (id) => unwrap(http.delete(`/admin/exits/${id}/invoice`)),
 
