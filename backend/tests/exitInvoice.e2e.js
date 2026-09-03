@@ -73,7 +73,10 @@ async function kur() {
   return { fisler, bayi1, bayi2, urun }
 }
 
-const kuyruk = (query, user) => call(invoiceQueue, { query, user })
+// VARSAYILAN 'all': bu dosyanın eski blokları baskı filtresi YOKKEN yazıldı ve
+// basılmamış fişlerin kuyruk davranışını ölçüyor. Filtrenin kendisi (varsayılanın
+// 'yes' olduğu dahil) aşağıda ayrı blokta açıkça test ediliyor.
+const kuyruk = (query = {}, user) => call(invoiceQueue, { query: { printed: 'all', ...query }, user })
 
 // audit() ATEŞLE-UNUT: uygulama denetim yazımını beklemiyor (istek gecikmesin
 // diye, kod tabanının her yerinde böyle). Test o yüzden kısa süre yoklamalı —
@@ -103,7 +106,10 @@ let ctx
   const r = await kuyruk({ status: 'pending' })
   ok(r.status === 200, `istek 200 (${r.status})`)
   ok(r.body.total === 2, `2 irsaliye bekliyor: ${r.body.total}`)
-  ok(r.body.pendingCount === 2, `pendingCount = ${r.body.pendingCount}`)
+  // pendingCount menü rozetidir ve EKRANIN VARSAYILANINI sayar: basılı +
+  // onaysız. Bu fişler henüz basılmadı, rozet o yüzden 0. printed=all
+  // görünümünde 2 satır var — rozet listedeki satır sayısı değil, yapılacak iş.
+  ok(r.body.pendingCount === 0, `basılmamış fiş rozete girmiyor: ${r.body.pendingCount}`)
   const ilk = r.body.data[0]
   ok(ilk.invoiceNo === null, 'fatura no boş')
   ok(ilk.printedAt === null, 'baskı işareti boş')
@@ -126,7 +132,10 @@ console.log('\n── Onay ──')
   ok(bekleyen.body.total === 1, `bekleyen 1'e düştü: ${bekleyen.body.total}`)
   const onayli = await kuyruk({ status: 'approved' })
   ok(onayli.body.total === 1, `onaylı 1 oldu: ${onayli.body.total}`)
-  ok(onayli.body.pendingCount === 1, 'pendingCount her iki sekmede de doğru')
+  // Rozet sekmeden BAĞIMSIZ aynı sayıyı vermeli — muhasebeci sekme değiştirince
+  // "iş bitti mi" sorusunun cevabı değişmemeli.
+  ok(onayli.body.pendingCount === bekleyen.body.pendingCount,
+    `pendingCount her iki sekmede de aynı: ${onayli.body.pendingCount}`)
 
   const log = await auditBekle(ctx.fisler[0], /MSK2026-001/)
   ok(/MSK2026-001/.test(log?.detail ?? ''), `denetim kaydı düştü: ${log?.detail}`)
@@ -385,5 +394,53 @@ console.log('\n── Sayfalama ──')
 
 await temizle()
 await prisma.$disconnect()
+
+// ── 13. BASKI FİLTRESİ ──
+//
+// Muhasebeci faturayı teslim edilmiş fişe keser. Ama printedAt 28 Ağustos
+// 2026'da eklendi: ondan önceki fişlerde baskı izi yok ve baskı işareti
+// ateşle-unut gidiyor. Filtre kapatılamazsa o kayıtlar HİÇ faturalanamaz —
+// bu blok hem varsayılanı hem kaçış yolunu kilitliyor.
+console.log('\n── Baskı filtresi ──')
+{
+  const d = await kur()
+
+  // printed parametresi VERİLMEDEN: varsayılan basılı olmalı
+  const varsayilan = await call(invoiceQueue, { query: { status: 'pending' } })
+  ok(varsayilan.body.total === 0, `varsayılan basılıyı süzüyor: ${varsayilan.body.total} satır`)
+  ok(varsayilan.body.unprintedCount === 2, `gizlenen sayısı bildiriliyor: ${varsayilan.body.unprintedCount}`)
+  ok(varsayilan.body.pendingCount === 0, `menü rozeti de basılıyı sayıyor: ${varsayilan.body.pendingCount}`)
+
+  const hepsi = await kuyruk({ status: 'pending' })
+  ok(hepsi.body.total === 2, `printed=all ikisini de getiriyor: ${hepsi.body.total}`)
+  ok(hepsi.body.unprintedCount === 0, 'printed=all iken gizlenen sayısı 0')
+
+  // Bir fişi bas → varsayılan görünümde çıkmalı
+  await call(markPrinted, { params: { id: String(d.fisler[0]) }, user: { name: 'Operatör' } })
+  const sonra = await call(invoiceQueue, { query: { status: 'pending' } })
+  ok(sonra.body.total === 1, `basılan fiş listeye girdi: ${sonra.body.total}`)
+  ok(sonra.body.data[0].id === d.fisler[0], 'gelen satır basılan fiş')
+  ok(sonra.body.unprintedCount === 1, `kalan gizli: ${sonra.body.unprintedCount}`)
+  ok(sonra.body.pendingCount === 1, `rozet güncellendi: ${sonra.body.pendingCount}`)
+
+  // Onaylılar sekmesi de aynı filtreye tabi
+  await call(setInvoiceNo, { params: { id: String(d.fisler[0]) }, body: { invoiceNo: 'BAS-1' } })
+  await call(setInvoiceNo, { params: { id: String(d.fisler[1]) }, body: { invoiceNo: 'BAS-2' } })
+  const onayliBasili = await call(invoiceQueue, { query: { status: 'approved' } })
+  ok(onayliBasili.body.total === 1, `onaylılarda yalnız basılı: ${onayliBasili.body.total}`)
+  ok(onayliBasili.body.unprintedCount === 1, `onaylılarda gizlenen: ${onayliBasili.body.unprintedCount}`)
+  const onayliHepsi = await kuyruk({ status: 'approved' })
+  ok(onayliHepsi.body.total === 2, `printed=all onaylıların ikisini de getiriyor: ${onayliHepsi.body.total}`)
+
+  // Arama ile birlikte: filtre aramayı ezmemeli, arama da filtreyi
+  const aramaBasili = await call(invoiceQueue, { query: { status: 'approved', q: 'BAS-2' } })
+  ok(aramaBasili.body.total === 0, 'basılmamış fiş aramayla da gelmiyor')
+  const aramaHepsi = await kuyruk({ status: 'approved', q: 'BAS-2' })
+  ok(aramaHepsi.body.total === 1, 'printed=all ile aynı arama buluyor')
+
+  const gecersiz = await call(invoiceQueue, { query: { status: 'pending', printed: 'belki' } })
+  ok(gecersiz.status === 400, `geçersiz baskı filtresi 400 (${gecersiz.status})`)
+}
+
 console.log(`\n═══ ${pass} geçti, ${fail} başarısız ═══`)
 process.exit(fail ? 1 : 0)

@@ -14,7 +14,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { PrintedBadge } from '@/components/ui/ExitBadges'
 import { formatTL } from '@/utils/currency'
 import { formatDate, formatWeight } from '@/utils/formatters'
-import { FileCheck, Clock, Search, X, Check, RotateCcw, AlertTriangle } from 'lucide-react'
+import { FileCheck, Clock, Search, X, Check, RotateCcw, AlertTriangle, Printer, EyeOff } from 'lucide-react'
 
 // Ana sayfa kutusu kısa liste gösterir; tam sayfa daha uzun (bkz.
 // InvoiceApprovalPage). Sayfa boyutu prop'tan geliyor ki iki kullanım
@@ -31,6 +31,18 @@ const TABS = [
   { value: 'approved', label: 'Onaylılar', icon: FileCheck },
 ]
 
+// Baskı filtresi. VARSAYILAN BASILI: fatura teslim edilmiş fişe kesilir,
+// basılmamış fiş henüz bayiye gitmemiş sayılır.
+//
+// "Tümü" seçeneği KALDIRILAMAZ: printedAt 28 Ağustos 2026'da eklendi, ondan
+// önceki fişlerde baskı izi yok (fiilen basılmış olsalar da) ve baskı işareti
+// window.print() sonrası ateşle-unut gidiyor — iPad'de iptal edilen istek
+// işareti hiç yazmıyor. Filtre kapatılamazsa o fişler hiç faturalanamaz.
+const PRINT_TABS = [
+  { value: 'yes', label: 'Basılı', icon: Printer },
+  { value: 'all', label: 'Tümü' },
+]
+
 // Ana sayfadaki legal fatura onay kuyruğu.
 //
 // Muhasebeci elindeki faturayı sistemdeki irsaliyeyle eşleştirir; numara
@@ -45,6 +57,8 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
   const setPendingCount = useInvoiceStore((s) => s.setPendingCount)
 
   const [tab, setTab] = useState('pending')
+  // 'yes' = yalnız basılı fişler (varsayılan), 'all' = hepsi
+  const [basili, setBasili] = useState('yes')
   const [page, setPage] = useState(1)
   const [aramaMetni, setAramaMetni] = useState('')
   const [data, setData] = useState({ data: [], total: 0, pendingCount: 0 })
@@ -66,11 +80,11 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
   const yukle = useCallback(() => {
     setLoading(true)
     const arama = aramaMetni.trim()
-    api.getInvoiceQueue({ status: tab, page, limit: pageSize, q: arama || undefined })
+    api.getInvoiceQueue({ status: tab, printed: basili, page, limit: pageSize, q: arama || undefined })
       .then((r) => { setData(r); setPendingCount(r?.pendingCount) })
       .catch((err) => addToast(errorMessage(err, 'Fatura kuyruğu yüklenemedi'), 'error'))
       .finally(() => setLoading(false))
-  }, [tab, page, aramaMetni, pageSize, addToast, setPendingCount])
+  }, [tab, basili, page, aramaMetni, pageSize, addToast, setPendingCount])
 
   useEffect(() => {
     const t = setTimeout(yukle, aramaMetni ? 300 : 0)
@@ -175,13 +189,38 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
         </div>
       </div>
 
-      <Segmented
-        value={tab}
-        onChange={(v) => { setTab(v); setPage(1); kapat() }}
-        options={TABS}
-        className="w-full sm:w-fit mb-4"
-        size="sm"
-      />
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <Segmented
+          value={tab}
+          onChange={(v) => { setTab(v); setPage(1); kapat() }}
+          options={TABS}
+          className="w-full sm:w-fit"
+          size="sm"
+        />
+        <Segmented
+          value={basili}
+          onChange={(v) => { setBasili(v); setPage(1); kapat() }}
+          options={PRINT_TABS}
+          className="w-full sm:w-fit"
+          size="sm"
+        />
+      </div>
+
+      {/* Filtrenin GİZLEDİĞİ kayıt sayısı. Sayı yazılmazsa 300'den fazla
+          irsaliye ekrandan sessizce düşer ve hiç faturalanmaz. */}
+      {basili === 'yes' && data.unprintedCount > 0 && (
+        <button
+          type="button"
+          onClick={() => { setBasili('all'); setPage(1); kapat() }}
+          className="w-full mb-3 flex items-center gap-2 text-left px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 hover:bg-amber-100 transition-colors"
+        >
+          <EyeOff className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1">
+            <b className="tabular-nums">{data.unprintedCount}</b> irsaliye basılı işaretli olmadığı için listede yok.
+            {' '}28 Ağustos öncesi fişlerde baskı izi tutulmuyordu — <u>Tümü</u>'ne geçmek için tıkla.
+          </span>
+        </button>
+      )}
 
       {loading ? (
         <div className="py-10 flex justify-center"><LoadingSpinner /></div>
@@ -189,9 +228,11 @@ export function InvoiceApprovalWidget({ pageSize = DEFAULT_PAGE_SIZE, className 
         <EmptyState
           icon={tab === 'pending' ? Check : FileCheck}
           title={tab === 'pending' ? 'Bekleyen fatura yok' : 'Onaylı irsaliye yok'}
-          description={tab === 'pending'
-            ? 'Kesilen tüm irsaliyeler faturayla eşleştirilmiş.'
-            : 'Fatura numarası girilen irsaliyeler burada listelenir.'}
+          description={basili === 'yes' && data.unprintedCount > 0
+            ? `Basılı işaretli kayıt yok. ${data.unprintedCount} irsaliye baskı filtresi yüzünden listede değil — "Tümü"ne geçin.`
+            : tab === 'pending'
+              ? 'Kesilen tüm irsaliyeler faturayla eşleştirilmiş.'
+              : 'Fatura numarası girilen irsaliyeler burada listelenir.'}
         />
       ) : (
         <div className="flex flex-col gap-2">

@@ -135,13 +135,27 @@ function ozetle(exit, priceMap = {}) {
 // zamanla açılmaz olur.
 export async function invoiceQueue(req, res, next) {
   try {
-    const { status = 'pending', q } = req.query
+    const { status = 'pending', q, printed = 'yes' } = req.query
     if (!['pending', 'approved'].includes(status)) {
       return res.status(400).json({ error: 'Geçersiz durum' })
     }
+    if (!['yes', 'all'].includes(printed)) {
+      return res.status(400).json({ error: 'Geçersiz baskı filtresi' })
+    }
     const { page, limit, skip } = parsePagination(req, { defaultLimit: 10 })
 
+    // VARSAYILAN BASILI (2026-09-04): muhasebeci faturayı teslim edilmiş fişe
+    // keser; basılmamış fiş henüz bayiye gitmemiş sayılır ve kuyruğu şişirip
+    // yapılacak işi görünmez kılıyordu.
+    //
+    // FİLTRE KAPATILABİLİR OLMALI — printedAt 28 Ağustos 2026'da eklendi, ondan
+    // önceki fişlerde baskı izi YOK (fiilen basılmış olsalar da). Baskı işareti
+    // ayrıca window.print() sonrası ateşle-unut gidiyor: iPad'de iptal edilen ya
+    // da düşen istek işareti hiç yazmıyor. Sert filtre bu kayıtları muhasebeden
+    // tamamen gizler ve hiç faturalanamazlar. printed=all o yüzden var, ekran da
+    // kaç kaydın gizlendiğini yazıyor (unprintedCount).
     const where = { invoiceNo: status === 'pending' ? null : { not: null } }
+    if (printed === 'yes') where.printedAt = { not: null }
 
     const arama = normalizeInvoiceNo(q)
     if (arama) {
@@ -156,7 +170,11 @@ export async function invoiceQueue(req, res, next) {
       ]
     }
 
-    const [rows, total, bekleyenSayisi] = await Promise.all([
+    // Gizlenen kayıt sayısı: AYNI sekmenin basılmamışları. Ekran bunu yazıyor,
+    // yoksa 309 irsaliye sessizce yok olurdu.
+    const gizliWhere = { ...where, printedAt: null }
+
+    const [rows, total, bekleyenSayisi, gizliSayi] = await Promise.all([
       prisma.exit.findMany({
         where,
         // Bekleyenler ESKİDEN YENİYE: en uzun bekleyen fatura en tepede olmalı,
@@ -168,7 +186,10 @@ export async function invoiceQueue(req, res, next) {
         select: QUEUE_SELECT,
       }),
       prisma.exit.count({ where }),
-      prisma.exit.count({ where: { invoiceNo: null } }),
+      // Menü rozeti: EKRANIN VARSAYILANIYLA aynı sayıyı göstermeli. Rozet 403
+      // derken liste 94 satır açarsa muhasebeci eksik iş arar.
+      prisma.exit.count({ where: { invoiceNo: null, printedAt: { not: null } } }),
+      printed === 'yes' ? prisma.exit.count({ where: gizliWhere }) : 0,
     ])
 
     // Fiyat map'leri SAYFADAKİ benzersiz günler için tek turda çekiliyor —
@@ -183,7 +204,10 @@ export async function invoiceQueue(req, res, next) {
         total, { page, limit, skip },
       ),
       // Sekme rozeti — hangi sekmede olursak olalım bekleyen sayısı görünmeli.
+      // Basılı işaretli olanları sayar (ekranın varsayılanı).
       pendingCount: bekleyenSayisi,
+      // Baskı filtresi yüzünden listede OLMAYAN kayıt sayısı. printed=all iken 0.
+      unprintedCount: gizliSayi,
     })
   } catch (err) { next(err) }
 }
