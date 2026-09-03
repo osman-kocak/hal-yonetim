@@ -24,6 +24,10 @@ function dateRangeFilter({ date, dateFrom, dateTo }) {
   return range
 }
 
+// Entry.source enum'u (schema.prisma → EntrySource). Giriş geçmişindeki
+// "Kaynak" filtresi bunun dışına çıkamaz.
+const ENTRY_SOURCES = ['HARVEST', 'RETURN', 'DISCARD']
+
 // Tüm irsaliyeleri getir (filtre: tarih, market) — paginated
 export async function getExitHistory(req, res, next) {
   try {
@@ -133,14 +137,24 @@ export async function getExitHistory(req, res, next) {
 // Tüm giriş kayıtları — paginated
 export async function getEntryHistory(req, res, next) {
   try {
-    const { regionId, marketId, producerId } = req.query
+    const { regionId, marketId, producerId, source } = req.query
     const { page, limit, skip } = parsePagination(req)
     const where = {}
 
     const createdAt = dateRangeFilter(req.query)
     if (createdAt) where.createdAt = createdAt
     if (regionId) where.regionSession = { regionId: Number(regionId) }
-    if (marketId) where.marketId = Number(marketId)
+    // Kaynak filtresi: mal kabul / iade / imha. Enum dışı değer sessizce
+    // yok sayılır — uydurma bir source ile sorgu atılırsa Prisma patlardı.
+    if (ENTRY_SOURCES.includes(source)) where.source = source
+    // Pazar filtresi İKİ tarafı da tarar. Entry.marketId kaydın ŞU ANKİ yeridir;
+    // iade kaydında bu HEDEF pazardır (Depo / yönlendirilen bayi), iadeyi VEREN
+    // bayi değil. O bilgi yalnızca ReturnRecord.marketId'de duruyor. Tek tarafa
+    // bakan filtre "6 no'lu bayiden gelen iade"yi hiç göstermiyordu.
+    if (marketId) {
+      const id = Number(marketId)
+      where.OR = [{ marketId: id }, { returnRecord: { marketId: id } }]
+    }
     // Üretici filtresi bölgeden BAĞIMSIZ uygulanır: üretici allRegions ise ya da
     // bölgesi sonradan değiştiyse, kayıtları başka bölgenin oturumunda durabilir.
     // İkisini AND'lemek o kayıtları sessizce gizlerdi.
@@ -166,6 +180,10 @@ export async function getEntryHistory(req, res, next) {
             include: { fromMarket: true, toMarket: true },
             orderBy: { createdAt: 'asc' },
           },
+          // İadenin KİMDEN geldiği. Entry.market hedefi tutuyor; veren bayi
+          // yalnız burada. DEPO/İMHA'ya giden iadede Transfer satırı hiç
+          // doğmadığı için (bkz. transferController.writeReturnRow) başka iz yok.
+          returnRecord: { include: { market: true } },
         },
       }),
       prisma.entry.count({ where }),
@@ -199,6 +217,12 @@ export async function getEntryHistory(req, res, next) {
       bQuality: e.bQuality,
       unit: e.unit,
       source: e.source,
+        // İadeyi veren bayi — "Pazar" kolonu hedefi gösterdiği için ekranda
+        // ayrı kolon lazım. Mal kabul satırlarında null.
+        returnedFrom: e.returnRecord?.market
+          ? { id: e.returnRecord.market.id, no: e.returnRecord.market.no, name: e.returnRecord.market.name }
+          : null,
+        returnDiscarded: e.returnRecord?.discarded ?? false,
         exitedAt: e.exitItems[0]?.exit?.createdAt ?? null,
         irsaliyeId: e.exitItems[0]?.exitId ?? null,
         // null → mal kabulde doğrudan pazara yazılmış, depoya hiç uğramamış

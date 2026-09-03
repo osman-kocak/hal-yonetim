@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, fetchAllPages } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
+import { useAuthStore } from '@/store/authStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Badge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -74,11 +75,28 @@ function buildExitSheets(all) {
 // "Depo Transfer" kolonları: mal kabulde DEPO'ya yazılan mal sonradan
 // transferle pazara gidiyor. "Pazar" kolonu kaydın ŞU ANKİ yerini gösteriyor,
 // oraya nasıl geldiğini değil — bu üç kolon o adımı açıyor.
+//
+// 'Kaynak' ve 'İade Eden' kolonları 'Pazar'dan SONRA duruyor: isSubtotalRow
+// satırın 1. indeksini ('Ürün') okuyor, baştan ekleme o işareti kaydırırdı.
 const ENTRY_COLUMNS = [
   'Tarih', 'Ürün', 'Bölge', 'Üretici', 'Kasa', 'Miktar', 'Birim', 'Pazar',
+  'Kaynak', 'İade Eden',
   'Depo Transfer', 'Transfer Tarihi', 'Transfer Notu',
   'Zayıf', 'Siyah/Karton Kasa', 'B Kalite',
 ]
+
+// Entry.source → ekran etiketi. İade ve imha satırları mal kabulle AYNI listede
+// duruyor (ikisi de Entry açıyor, bkz. transferController.writeReturnRow);
+// işaretlenmezlerse "bu mal nereden geldi" sorusu listede cevapsız kalıyor.
+const SOURCE_META = {
+  HARVEST: { label: 'Mal Kabul', variant: 'default' },
+  RETURN: { label: 'İade', variant: 'warning' },
+  DISCARD: { label: 'İmha', variant: 'error' },
+}
+const sourceLabel = (src) => SOURCE_META[src]?.label ?? SOURCE_META.HARVEST.label
+
+// Pazar etiketi: 0 → Depo, 99 → imha pazarı, gerisi "#no ad".
+const marketLabel = (m) => (m ? (m.no === 0 ? 'Depo' : `#${m.no} ${m.name}`) : '—')
 
 // İade (RETURN) ve imha (DISCARD) girişlerinin bölge oturumu yok → region null.
 // Bunlar mal kabul DEĞİL; gerçek bir bölgenin sekmesine karışırsa o bölgenin
@@ -105,7 +123,11 @@ function entryRow(e) {
     e.caseCount,
     e.weight ? Number(e.weight).toFixed(isCountable(e.unit) ? 0 : 2) : '',
     unitLabel(e.unit),
-    e.market ? (e.market.no === 0 ? 'Depo' : `#${e.market.no} ${e.market.name}`) : '—',
+    marketLabel(e.market),
+    sourceLabel(e.source),
+    // İadeyi VEREN bayi. 'Pazar' kolonu iadenin gittiği yeri gösteriyor
+    // (Depo / yönlendirilen bayi); geldiği yer yalnızca burada.
+    marketLabel(e.returnedFrom),
     // Boş = mal kabulde doğrudan pazara yazılmış, depoya hiç uğramamış.
     // Hedef genelde "Pazar" kolonuyla aynı olduğu için tekrar yazılmıyor;
     // yalnızca sonradan başka pazara aktarıldıysa fark belirtiliyor.
@@ -149,7 +171,9 @@ function subtotalRow(items) {
     totalQty.toFixed(countable ? 0 : 2),
     unitLabel(first.unit),
     siyahKasa > 0 ? `${items.length} kayıt · ${siyahKasa} siyah kasa hariç` : `${items.length} kayıt`,
-    '', '', '', '', '', '',
+    // Kaynak · İade Eden · Depo Transfer · Transfer Tarihi · Transfer Notu ·
+    // Zayıf · Siyah/Karton · B Kalite — hepsi satıra özel, toplamda anlamsız.
+    '', '', '', '', '', '', '', '',
   ]
 }
 
@@ -228,6 +252,8 @@ export function HistoryPage() {
   const [marketQuery, setMarketQuery] = useState('') // kutuda yazan pazar no
   const [filterRegion, setFilterRegion] = useState('')
   const [filterProducer, setFilterProducer] = useState('')
+  // Giriş Kayıtları sekmesi: mal kabul / iade / imha ayrımı
+  const [filterSource, setFilterSource] = useState('')
   // Fiş no ile arama — elindeki fişi tarihini bilmeden bulup tekrar basmak için
   const [filterExitId, setFilterExitId] = useState('')
   const [markets, setMarkets] = useState([])
@@ -265,11 +291,14 @@ export function HistoryPage() {
     const params = {}
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
-    if (tab === 0 && filterMarket) params.marketId = filterMarket
+    // Pazar filtresi artık İKİ sekmede de var. Girişlerde backend hem kaydın
+    // bulunduğu pazarı hem de iadeyi veren bayiyi tarıyor (bkz. getEntryHistory).
+    if (filterMarket) params.marketId = filterMarket
     if (tab === 1 && filterRegion) params.regionId = filterRegion
     if (tab === 1 && filterProducer) params.producerId = filterProducer
+    if (tab === 1 && filterSource) params.source = filterSource
     return params
-  }, [tab, dateFrom, dateTo, filterMarket, filterRegion, filterProducer, filterExitId])
+  }, [tab, dateFrom, dateTo, filterMarket, filterRegion, filterProducer, filterSource, filterExitId])
 
   const fetchData = useCallback(() => {
     setLoading(true)
@@ -290,7 +319,7 @@ export function HistoryPage() {
   }, [exportFilterParams, tab, page])
 
   // Filter değişince sayfayı 1'e dön
-  useEffect(() => { setPage(1) }, [tab, dateFrom, dateTo, filterMarket, filterRegion, filterProducer, filterExitId])
+  useEffect(() => { setPage(1) }, [tab, dateFrom, dateTo, filterMarket, filterRegion, filterProducer, filterSource, filterExitId])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -336,7 +365,11 @@ export function HistoryPage() {
               onClick={() => {
                 setTab(i)
                 setFilterMarket('')
+                // Kutudaki yazı da silinmeli: filtre boşalırken metin kalırsa
+                // ekran "6 no'ya göre süzülüyor" der ama süzülmez.
+                setMarketQuery('')
                 setFilterRegion('')
+                setFilterSource('')
                 // URL sekmeyi taşısın — yenilemede/paylaşımda aynı sekme açılır
                 setSearchParams(i === 1 ? { tab: 'girisler' } : { tab: 'irsaliyeler' }, { replace: true })
               }}
@@ -406,8 +439,10 @@ export function HistoryPage() {
 
         {/* Pazar filtresi: dropdown yerine NO yazılıyor (diğer ekranlarla aynı
             alışkanlık). Boş bırakılırsa tüm pazarlar.
-            Fiş no aramasında anlamsız — gizli. */}
-        {tab === 0 && !filterExitId && (
+            Fiş no aramasında anlamsız — gizli.
+            Girişler sekmesinde de var: iade satırları hedefteki pazara (Depo)
+            yazıldığı için "6 no'lu bayiden ne döndü" başka türlü sorulamıyordu. */}
+        {!(tab === 0 && filterExitId) && (
           <div className="flex items-center gap-2">
             <MarketAutocomplete
               label="Pazar No"
@@ -432,6 +467,18 @@ export function HistoryPage() {
         )}
         {tab === 1 && (
           <>
+            {/* Mal kabul / iade / imha ayrımı. Üçü de Entry açtığı için aynı
+                listede duruyorlar; iadeyi tek başına görmenin tek yolu bu. */}
+            <select
+              value={filterSource}
+              onChange={(e) => setFilterSource(e.target.value)}
+              className="px-4 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary bg-white"
+            >
+              <option value="">Tüm Kayıtlar</option>
+              <option value="HARVEST">Sadece Mal Kabul</option>
+              <option value="RETURN">Sadece İade</option>
+              <option value="DISCARD">Sadece İmha</option>
+            </select>
             <select
               value={filterRegion}
               onChange={(e) => changeRegion(e.target.value)}
@@ -744,10 +791,8 @@ function DeleteExitModal({ exit, onClose, onDeleted }) {
 
 function EditExitModal({ exit, onClose, onSave }) {
   const [available, setAvailable] = useState([])
-  const [users, setUsers] = useState([])
   const [loadingData, setLoadingData] = useState(true)
   const [selected, setSelected] = useState(() => new Set(exit.items.map((i) => i.entry.id)))
-  const [selectedUser, setSelectedUser] = useState('')
   // Fiyat artık ürün başına tek (kalite kullanımdan kalktı) — anahtar productId.
   const [prices, setPrices] = useState(() => {
     const p = {}
@@ -759,9 +804,14 @@ function EditExitModal({ exit, onClose, onSave }) {
   const [saving, setSaving] = useState(false)
   const addToast = useToastStore((s) => s.addToast)
 
+  // Fiyat güncellemesine yazılacak isim OTURUMDAN — kullanıcı listesi artık
+  // çekilmiyor, ekran kimseyi sormuyor.
+  const kullaniciAdi = useAuthStore.getState().user?.name
+    ?? useAuthStore.getState().user?.username ?? 'Admin'
+
   useEffect(() => {
-    Promise.all([api.getMarketEntries(exit.market.id), api.getAdminUsers()])
-      .then(([avail, userList]) => { setAvailable(avail); setUsers(userList) })
+    api.getMarketEntries(exit.market.id)
+      .then(setAvailable)
       .catch(() => addToast('Veriler yüklenemedi', 'error'))
       .finally(() => setLoadingData(false))
   }, [])
@@ -800,7 +850,6 @@ function EditExitModal({ exit, onClose, onSave }) {
 
   async function handleSave() {
     if (!selected.size) { addToast('En az bir giriş seçilmeli', 'error'); return }
-    if (!selectedUser) { addToast('Düzenleyen kullanıcı seçilmeli', 'error'); return }
     setSaving(true)
     try {
       // Önce fiyatları kaydet
@@ -813,11 +862,12 @@ function EditExitModal({ exit, onClose, onSave }) {
             // qualityId gönderilmiyor → ürünün genel fiyatı yazılır
             pricePerKg: Number(prices[r.key]),
             date: exitDate,
-            updatedBy: selectedUser,
+            updatedBy: kullaniciAdi,
           }))
       )
       // Sonra exit güncelle
-      await api.updateExit(exit.id, { entryIds: [...selected], editedBy: selectedUser })
+      // editedBy gönderilmiyor: sunucu oturumdan yazıyor.
+      await api.updateExit(exit.id, { entryIds: [...selected] })
       addToast('İrsaliye güncellendi ✓')
       onSave()
     } catch (err) {
@@ -833,21 +883,10 @@ function EditExitModal({ exit, onClose, onSave }) {
         <div className="flex justify-center py-8"><LoadingSpinner className="text-primary" /></div>
       ) : (
         <div className="flex flex-col gap-5">
-          {/* Düzenleyen kullanıcı */}
-          <div>
-            <label className="text-sm font-medium text-text-secondary block mb-1.5">Düzenleyen</label>
-            <select
-              value={selectedUser}
-              onChange={(e) => setSelectedUser(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary bg-white"
-            >
-              <option value="">— Kullanıcı seçin —</option>
-              {users.filter((u) => u.active).map((u) => (
-                <option key={u.id} value={u.name}>{u.name}</option>
-              ))}
-            </select>
-          </div>
-
+          {/* Düzenleyen SORULMUYOR (2026-08-27): oturumdaki kullanıcı yazılıyor.
+              Sormak hem fazladan bir adımdı hem de listeden yanlış isim
+              seçilebiliyordu — kaydı kimin değiştirdiği artık uydurulamaz.
+              Sunucu da aynı kuralı uyguluyor (exitController.updateExit). */}
           {/* Giriş seçimi */}
           <div>
             <label className="text-sm font-medium text-text-secondary block mb-1.5">
@@ -936,7 +975,7 @@ function EditExitModal({ exit, onClose, onSave }) {
 
           <div className="flex justify-end gap-3 pt-2 border-t border-border">
             <Button variant="outline" onClick={onClose}>İptal</Button>
-            <Button onClick={handleSave} loading={saving} disabled={!selected.size || !selectedUser}>
+            <Button onClick={handleSave} loading={saving} disabled={!selected.size}>
               Kaydet ({selected.size} giriş)
             </Button>
           </div>
@@ -957,6 +996,8 @@ function EntryHistoryTable({ data }) {
             <th className="p-4 text-left font-semibold text-text-secondary">Ürün</th>
             <th className="p-4 text-left font-semibold text-text-secondary">Mal Durumu</th>
             <th className="p-4 text-left font-semibold text-text-secondary">Pazar</th>
+            <th className="p-4 text-left font-semibold text-text-secondary">Kaynak</th>
+            <th className="p-4 text-left font-semibold text-text-secondary">İade Eden</th>
             <th className="p-4 text-right font-semibold text-text-secondary">Kasa</th>
             <th className="p-4 text-right font-semibold text-text-secondary">Miktar</th>
             <th className="p-4 text-left font-semibold text-text-secondary">Giriş</th>
@@ -977,7 +1018,19 @@ function EntryHistoryTable({ data }) {
                   {e.disposableCase && <Badge variant="default">Siyah/Karton Kasa</Badge>}
                 </div>
               </td>
-              <td className="p-4 text-text-secondary">#{e.market?.no} {e.market?.name}</td>
+              <td className="p-4 text-text-secondary">{marketLabel(e.market)}</td>
+              <td className="p-4">
+                {e.source === 'HARVEST'
+                  ? <span className="text-xs text-text-muted">Mal Kabul</span>
+                  : <Badge variant={SOURCE_META[e.source]?.variant ?? 'default'}>{sourceLabel(e.source)}</Badge>}
+              </td>
+              {/* İadeyi VEREN bayi. "Pazar" kolonu iadenin GİTTİĞİ yeri gösteriyor
+                  (Depo / yönlendirilen bayi) — ikisi aynı satırda farklı şey. */}
+              <td className="p-4 text-text-secondary">
+                {e.returnedFrom
+                  ? <span className="font-medium text-amber-700">{marketLabel(e.returnedFrom)}</span>
+                  : <span className="text-text-muted">—</span>}
+              </td>
               <td className="p-4 text-right">{e.caseCount}</td>
               <td className="p-4 text-right">{formatQty(e.weight, e.unit)}</td>
               <td className="p-4 text-xs text-text-muted">{formatDate(e.createdAt)}</td>

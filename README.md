@@ -39,6 +39,7 @@ Bölge bazlı mal kabulden başlayıp; depo yönetimi, pazar bazlı irsaliye kes
 - ⚡ **Performans optimize** — Vendor chunk split, PDF/XLSX lazy, auto-refresh `document.hidden` pause
 - 📄 **Pagination** — `/admin/takip` (irsaliye + mal kabul geçmişi) sayfa bazlı (50/page)
 - 🔎 **Bölge + üretici filtresi** — `/admin/takip?tab=girisler` ekranında bölge seçilince üretici listesi o bölgeye daralır (`allRegions` üreticiler her bölgede kalır). Filtre backend'de bölgeden bağımsız uygulanır — üreticinin kayıtları başka bölge oturumunda da durabiliyor
+- ↩️ **İade, giriş geçmişinde görünür** — `/admin/takip?tab=girisler` listesinde iki yeni kolon: **Kaynak** (Mal Kabul / İade / İmha rozeti) ve **İade Eden** (iadeyi veren bayi). Gerekçe: iade kaydı `Entry.marketId`'ye **hedefi** yazıyor (Depo ya da yönlendirilen bayi), iadeyi vereni değil — o bilgi yalnız `ReturnRecord.marketId`'de duruyor. Bu yüzden pazar filtresi **iki tarafı da** tarıyor: 6 no'lu bayiye yazılan mal da, 6 no'lu bayiden dönen iade de aynı filtrede çıkar. Ayrıca **kaynak filtresi** (Tümü / Sadece Mal Kabul / Sadece İade / Sadece İmha). Bölge filtresi iadeyi hâlâ eler — iade kaydının bölge oturumu yok, kaynak filtresi bunun için var. Aynı iki kolon Excel/PDF çıktısında da
 - 🍅 **Ürün emoji ikonları** — Her ürüne admin panelinden emoji atanabilir (🍅 Domates, 🍎 Elma…)
 - 🔥 **Akıllı ürün sıralaması** — Mal kabul ekranındaki ürünler en çok girişi yapılana göre sıralanır (global)
 - 🔄 **Üretici aktif/pasif** — Admin panelinde tek tıkla toggle; pasif üreticiler operatör ekranında görünmez, backend de blok eder (cari kayıtlar korunur)
@@ -350,7 +351,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/admin/finans` | ADMIN, ACC. | Bayi alacak / Üretici borç cari — **ham defter** (elle düzeltme, açılış devri) |
 | `/admin/uretici-odeme` | ADMIN, ACC. | Üretici ödeme paneli (bakiye, ekstre, mal kabul dökümü, tek/toplu ödeme, makbuz) |
 | `/admin/fatura-onay` | ADMIN, ACC. | Legal fatura onayı — bekleyen/onaylı sekmeleri, arama, tek tek eşleştirme |
-| `/admin/takip` | ADMIN, ACC. | Geçmiş hareket logu |
+| `/admin/takip` | ADMIN, ACC. | Geçmiş hareket logu (irsaliyeler + giriş kayıtları; girişlerde iade/imha ayrı işaretli) |
 | `/admin/kasalar` | ADMIN, ACC. | Kasa hareketleri raporu |
 | `/admin/transferler` | ADMIN, ACC. | Transfer geçmişi |
 | `/admin/iadeler` | ADMIN, ACC. | İade kayıtları |
@@ -582,6 +583,8 @@ olarak yazılır.
 - [ ] Raporlar tarih filtresiyle çalışır
 - [ ] PDF + XLSX export çalışır
 - [ ] `/admin/takip` Excel çıktısı çok sekmeli: "Tümü" + pazar/bölge sekmeleri, satır sayısı ekranla uyuşur
+- [ ] `/admin/takip?tab=girisler`: bayiden iade al → satır listede **İade** rozetiyle ve **İade Eden #no** dolu çıkıyor;
+      Pazar No'ya iadeyi VEREN bayiyi yaz → iade satırı görünüyor (mal Depo'ya gitmiş olsa bile)
 - [ ] `/admin/takip?tab=girisler`: bölge seç → üretici listesi daralır → üretici seç → liste süzülür;
       bölge değişince üretici filtresi sıfırlanır
 
