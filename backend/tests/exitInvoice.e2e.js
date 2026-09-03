@@ -112,6 +112,10 @@ let ctx
   ok(r.body.pendingCount === 0, `basılmamış fiş rozete girmiyor: ${r.body.pendingCount}`)
   const ilk = r.body.data[0]
   ok(ilk.invoiceNo === null, 'fatura no boş')
+  // Kesen kişi oturumdan gelmeli. Eskiden istemci bu alanı göndermediği için
+  // HER fişe düz "Operatör" yazılıyordu; printedBy gerçek ismi tuttuğu için
+  // aynı satırda "yılmaz bastı, Operatör kesti" gibi çelişki çıkıyordu.
+  ok(ilk.createdBy === 'Muhasebe', `kesen oturumdan okundu: ${ilk.createdBy}`)
   ok(ilk.printedAt === null, 'baskı işareti boş')
   ok(ilk.amount === 1200, `tutar hesaplandı: 80 kg × 15 = ${ilk.amount} TL`)
   ok(ilk.trackedCases === 10, `kasa: ${ilk.trackedCases}`)

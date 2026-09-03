@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
-import { printIrsaliye, openIrsaliyePdf, isIOS } from '@/store/printStore'
+import { printIrsaliye, openIrsaliyePdf, markIrsaliyePrinted, isIOS } from '@/store/printStore'
 import { ExitBadges } from '@/components/ui/ExitBadges'
 import { generateIrsaliye } from '@/utils/pdfGenerator'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -313,9 +313,16 @@ export function MarketExitDetail() {
             <div className="flex gap-3">
               <Button
                 variant="outline"
-                onClick={() => (isIOS()
-                  ? openIrsaliyePdf(createdExit, api.markExitPrinted)
-                  : generateIrsaliye(createdExit))}
+                // PDF de baskı sayılır. iOS yolu (openIrsaliyePdf) zaten
+                // işaretliyordu, masaüstü yolu işaretlemiyordu — aynı düğmenin
+                // iki platformda iki farklı anlamı olmamalı. Masaüstünde PDF
+                // doğrudan iniyor (boş sekme açmak gereksiz), işaret ayrıca
+                // atılıyor.
+                onClick={() => {
+                  if (isIOS()) { openIrsaliyePdf(createdExit, api.markExitPrinted); return }
+                  generateIrsaliye(createdExit)
+                  markIrsaliyePrinted(createdExit, api.markExitPrinted)
+                }}
                 className="flex-1 flex items-center justify-center gap-2"
               >
                 <FileText className="w-4 h-4" />

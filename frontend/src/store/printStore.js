@@ -42,15 +42,21 @@ export function printIrsaliye(exit, markPrinted) {
   // İşaretleme SONRA ve BEKLENMEDEN: window.print() öncesine await koymak iOS'ta
   // yazdırma iznini düşürüyor (yukarıdaki kural). Hata YUTULUYOR — rozet bilgi
   // amaçlı, offline iPad'de istek düşse bile fiş basılmış olmalı.
-  isaretle(exit, markPrinted)
+  markIrsaliyePrinted(exit, markPrinted)
 }
 
 // "Basıldı" işareti — ateşle ve unut.
 //
 // GÜVENİLİRLİK SINIRI: tarayıcı yazdırmanın gerçekten olduğunu söylemiyor.
-// Panel açılıp iptal edilse de buraya "basıldı" gelir. Bu yüzden fatura onay
-// kuyruğu bu bilgiye BAĞLANMADI (bkz. exitInvoiceController.markPrinted).
-function isaretle(exit, markPrinted) {
+// Panel açılıp iptal edilse de buraya "basıldı" gelir; ölçtüğü şey "Yazdır'a
+// basıldı"dır, "kâğıt çıktı" değil. Fatura onay kuyruğu bu bilgiyi FİLTRE
+// olarak kullanıyor ama filtre kapatılabilir (bkz. exitInvoiceController).
+//
+// DIŞARI AÇIK: yazdırma her zaman bu dosyadan geçmiyor. Masaüstünde PDF
+// doğrudan indiriliyor (utils/pdfGenerator → generateIrsaliye), araya sekme
+// girmiyor — o yol da baskı sayılmalı, yoksa aynı düğme iPad'de "basıldı",
+// masaüstünde "hiç basılmadı" anlamına gelirdi.
+export function markIrsaliyePrinted(exit, markPrinted) {
   if (!exit?.id || typeof markPrinted !== 'function') return
   try {
     Promise.resolve(markPrinted(exit.id)).catch(() => {})
@@ -62,7 +68,7 @@ function isaretle(exit, markPrinted) {
 export function openIrsaliyePdf(exit, markPrinted) {
   const win = window.open('', '_blank')
   generateIrsaliye(exit, win)
-  isaretle(exit, markPrinted)
+  markIrsaliyePrinted(exit, markPrinted)
 }
 
 // Üreticiye ödeme makbuzu. printIrsaliye ile AYNI kural geçerli: araya await

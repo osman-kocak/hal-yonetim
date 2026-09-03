@@ -34,7 +34,13 @@ export async function createExit(req, res, next) {
     const lockError = await assertExitLock(Number(marketId), req.user)
     if (lockError) return res.status(409).json({ error: lockError })
 
-    const createdBy = req.body.createdBy ?? 'Operatör'
+    // Kesen kişi OTURUMDAN — istemciden değil. Eskiden istemci bu alanı hiç
+    // göndermiyordu ve HER fişe düz "Operatör" yazılıyordu: 252 irsaliyenin
+    // tamamı aynı isimdeydi, "bu fişi kim kesti" sorusu ancak AuditLog'a JOIN
+    // atarak cevaplanabiliyordu. printedBy ve editedBy zaten oturumdan okuyor;
+    // üçü aynı fişte farklı kaynaktan gelirse ekranda "yılmaz bastı ama Operatör
+    // kesti" gibi anlamsız satırlar çıkıyor.
+    const createdBy = req.user?.name || req.user?.username || req.body.createdBy || 'Operatör'
 
     // Aynı entry başka irsaliyede var mı?
     const alreadyExited = await prisma.exitItem.findMany({
