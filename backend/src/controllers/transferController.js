@@ -11,6 +11,13 @@ import { applyTare } from '../utils/tare.js'
 import { toPriceDate, startOfLocalDay, endOfLocalDay, clampClientTime } from '../utils/date.js'
 import { parsePagination, paginated } from '../utils/pagination.js'
 
+// Query'den gelen id: sayı değilse filtre hiç uygulanmaz. Number(...) tek
+// başına NaN üretip Prisma'yı patlatıyor.
+function posInt(v) {
+  const n = Number(v)
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
 // errorHandler err.status'ü okur — transaction içinden anlamlı HTTP kodu fırlatmak için
 function httpError(status, message) {
   const e = new Error(message)
@@ -1139,9 +1146,16 @@ export async function deleteReturn(req, res, next) {
 // Admin: tüm transfer geçmişi
 export async function listTransfers(req, res, next) {
   try {
-    const { dateFrom, dateTo, toMarketId } = req.query
+    const { dateFrom, dateTo, toMarketId, marketId, productId } = req.query
     const where = {}
     if (toMarketId) where.toMarketId = Number(toMarketId)
+    // Pazar filtresi transferin İKİ tarafını da tarar. "5 no'lu pazarla ilgili
+    // ne oldu" sorusunda kullanıcı malın oraya mı geldiğini oradan mı gittiğini
+    // önceden bilmiyor; tek seçim iki yönü de getirmeli.
+    const mId = posInt(marketId)
+    if (mId) where.OR = [{ fromMarketId: mId }, { toMarketId: mId }]
+    const pId = posInt(productId)
+    if (pId) where.entry = { productId: pId }
     if (dateFrom || dateTo) {
       where.createdAt = {}
       // new Date('2026-07-21') UTC gece yarısıdır; .setHours() yerel saat uygular

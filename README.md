@@ -325,6 +325,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/api/admin/exits/invoice-queue` | Fatura onay kuyruğu (`status=pending\|approved`, arama, sayfalı) + `pendingCount` |
 | `/api/admin/exits/:id/invoice` | `POST` onay/düzeltme (`ADMIN`+`ACCOUNTING`) · `DELETE` onayı geri alma (**yalnız `ADMIN`**) |
 | `/api/exit/:id/printed` · `/api/admin/exits/:id/printed` | "Basıldı" işareti — iki uç, çünkü baskı hem saha (`OPERATOR`) hem admin ekranından yapılıyor |
+| `/api/admin/transfers` | Transfer geçmişi (`ADMIN`+`ACCOUNTING`) — `dateFrom`/`dateTo`, `productId` ve `marketId` ile filtrelenir, sayfalı. `marketId` transferin **iki tarafını birden** tarar (`fromMarketId` VEYA `toMarketId`): malın oraya mı geldiği oradan mı gittiği aramaya başlamadan bilinmiyor. Geçersiz id filtreyi düşürür, hata döndürmez |
 | `/api/admin/depo/history` | Depo hareket geçmişi (`ADMIN`+`ACCOUNTING`) — `Entry` + `Transfer` birleşik, yön/tarih/arama filtreli, sayfalı |
 | `/api/admin/returns` | İade **listeleme + silme** (`ADMIN`+`ACCOUNTING`). Saha `/api/depo/returns` yalnız `DEPO`+`ADMIN` — muhasebeci oradan 403 alıyordu. İade **oluşturma** burada yok: fiziksel mal kabulü, sahada tartılarak girilir |
 | `/api/admin/purchase-prices/*` | **Alış** fiyatı (genel + üretici özel). Yalnız `ADMIN`/`ACCOUNTING` — saha karşılığı **yok** |
@@ -354,7 +355,7 @@ tutarı bunun üzerinden hesaplanır. Kurallar:
 | `/admin/fatura-onay` | ADMIN, ACC. | Legal fatura onayı — bekleyen/onaylı sekmeleri, arama, tek tek eşleştirme |
 | `/admin/takip` | ADMIN, ACC. | Geçmiş hareket logu (irsaliyeler + giriş kayıtları; girişlerde iade/imha ayrı işaretli) |
 | `/admin/kasalar` | ADMIN, ACC. | Kasa hareketleri raporu |
-| `/admin/transferler` | ADMIN, ACC. | Transfer geçmişi |
+| `/admin/transferler` | ADMIN, ACC. | Transfer geçmişi — tarih + **pazar** + **ürün** filtresi, Excel/PDF export (ekrandaki sayfa değil, filtreye uyan tüm kayıtlar) |
 | `/admin/iadeler` | ADMIN, ACC. | İade kayıtları |
 | `/admin/kullanicilar` | ADMIN | Kullanıcı CRUD + rol atama |
 | `/admin/bolgeler` | ADMIN, ACC. | Bölge CRUD |

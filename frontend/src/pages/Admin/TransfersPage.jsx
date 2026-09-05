@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, asList, fetchAllPages } from '@/services/api'
 import { useToastStore } from '@/store/toastStore'
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
@@ -19,14 +19,35 @@ export function TransfersPage() {
   const [loading, setLoading] = useState(true)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  // Pazar filtresi tek kutu: seçilen pazar transferin kaynağı VEYA hedefi
+  // olabilir (backend OR'luyor). Malın hangi yöne gittiğini kullanıcı aramaya
+  // başlamadan bilmiyor.
+  const [filterMarket, setFilterMarket] = useState('')
+  const [filterProduct, setFilterProduct] = useState('')
+  const [markets, setMarkets] = useState([])
+  const [products, setProducts] = useState([])
   const addToast = useToastStore((s) => s.addToast)
+
+  useEffect(() => {
+    api.getMarkets().then((m) => setMarkets(m ?? [])).catch(() => {})
+    api.getProducts().then((p) => setProducts(p ?? [])).catch(() => {})
+  }, [])
+
+  // Ürün listesi API'den kullanım sıklığına göre geliyor; filtrede aranan ürünü
+  // gözle bulmak için alfabetik daha hızlı.
+  const sortedProducts = useMemo(
+    () => [...products].sort((a, b) => a.name.localeCompare(b.name, 'tr')),
+    [products],
+  )
 
   const filterParams = useCallback(() => {
     const params = {}
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
+    if (filterMarket) params.marketId = filterMarket
+    if (filterProduct) params.productId = filterProduct
     return params
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, filterMarket, filterProduct])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -42,7 +63,10 @@ export function TransfersPage() {
 
   useEffect(() => { load() }, [load])
   // Filtre değişince 1. sayfaya dön — yoksa 7. sayfada boş liste görünüyor
-  useEffect(() => { setPage(1) }, [dateFrom, dateTo])
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo, filterMarket, filterProduct])
+
+  // Boş liste "hiç transfer yok" mu, "filtre tutmadı" mı — ikisi ayrı mesaj
+  const filtered = !!(dateFrom || dateTo || filterMarket || filterProduct)
 
   return (
     <div className="p-6">
@@ -91,10 +115,38 @@ export function TransfersPage() {
             className="px-3 py-2 rounded-xl border border-border text-sm"
           />
         </div>
-        {(dateFrom || dateTo) && (
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-text-secondary">Pazar</label>
+          <select
+            value={filterMarket}
+            onChange={(e) => setFilterMarket(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">Tüm pazarlar</option>
+            {markets.map((m) => (
+              <option key={m.id} value={m.id}>#{m.no} {m.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-text-secondary">Ürün</label>
+          <select
+            value={filterProduct}
+            onChange={(e) => setFilterProduct(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">Tüm ürünler</option>
+            {sortedProducts.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.icon ? `${p.icon} ` : ''}{p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {(dateFrom || dateTo || filterMarket || filterProduct) && (
           <button
-            onClick={() => { setDateFrom(''); setDateTo('') }}
-            className="text-xs text-primary hover:underline"
+            onClick={() => { setDateFrom(''); setDateTo(''); setFilterMarket(''); setFilterProduct('') }}
+            className="text-xs text-primary hover:underline pb-2.5"
           >
             Temizle
           </button>
@@ -105,7 +157,13 @@ export function TransfersPage() {
         {loading ? (
           <div className="flex justify-center py-16"><LoadingSpinner size="lg" className="text-primary" /></div>
         ) : !transfers.length ? (
-          <EmptyState icon="🔁" title="Transfer kaydı yok" description="Depodan başka pazara yapılan transferler burada listelenir." />
+          <EmptyState
+            icon="🔁"
+            title={filtered ? 'Bu filtreye uyan transfer yok' : 'Transfer kaydı yok'}
+            description={filtered
+              ? 'Tarih aralığını genişletmeyi ya da pazar/ürün seçimini kaldırmayı dene.'
+              : 'Depodan başka pazara yapılan transferler burada listelenir.'}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs sm:text-sm">

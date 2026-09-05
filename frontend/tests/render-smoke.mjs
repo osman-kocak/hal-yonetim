@@ -344,6 +344,23 @@ console.log('\n── Fatura onayı ──')
   ok(!faturasiz.includes('Fatura No'), 'fatura yoksa boş satır basılmıyor')
 }
 
+// ——— Transfer Geçmişi: pazar + ürün filtresi ———
+//
+// Filtre kutuları loading dalının DIŞINDA — ilk render'da (veri gelmeden)
+// zaten basılıyorlar, o yüzden SSR'de içerik olarak doğrulanabiliyor.
+console.log('\n── Transfer Geçmişi · filtreler ──')
+{
+  const { TransfersPage } = await load('/src/pages/Admin/TransfersPage.jsx')
+  let html = ''
+  try { html = renderToStaticMarkup(wrap(h(TransfersPage, null))); ok(true, 'sayfa render edildi') }
+  catch (e) { ok(false, 'sayfa render edildi', String(e.message).slice(0, 200)) }
+  ok(html.includes('>Pazar<') && html.includes('Tüm pazarlar'), 'Pazar filtresi kutusu basıldı')
+  ok(html.includes('>Ürün<') && html.includes('Tüm ürünler'), 'Ürün filtresi kutusu basıldı')
+  // Hiçbir filtre seçili değilken Temizle görünmemeli — yoksa kullanıcı
+  // temizlenecek bir şey olmadığı hâlde tıklanacak bir düğme görüyor.
+  ok(!html.includes('Temizle'), 'filtre yokken Temizle düğmesi yok')
+}
+
 await vite.close()
 console.log(`\n═══ ${pass} geçti, ${fail} başarısız ═══`)
 process.exit(fail ? 1 : 0)
